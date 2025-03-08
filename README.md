@@ -1,5 +1,5 @@
 # TraceIt
-A simple console 3d physics simulator that I made with C++, should be compatible with any unix-like system (only tested on Linux, Android), Windows.
+A simple console 3d physics simulator that I made with C++, should be compatible with any unix-like system (only tested on Linux, Android), Windows. Heavilly inspired by OneLoneCoder's ConsoleGameEngine
 
 # Dependencies
 ## Runtime:
