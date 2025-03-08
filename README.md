@@ -4,9 +4,13 @@ A simple console 3d physics simulator that I made with C++, should be compatible
 # Dependencies
 ## Runtime:
 Install ncurses (if not yet installed)
-On Arch Linux run 
+On Arch Linux run
+```bash
 $ sudo pacman -Syu ncurses
+```
 ## Build:
 Install clang and cmake (if not yet installed)
 On Arch Linux run
+```bash
 $ sudo pacman -Syu clang cmake
+```
