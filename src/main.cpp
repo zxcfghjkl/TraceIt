@@ -290,12 +290,17 @@ vec3d calculateNormal(const triangle &tri)
 }
 
 // А вот и она
-bool isTriangleVisible(const triangle &tri, const camera& cam)
+bool isTriangleVisible(const triangle &tri, const camera& c)
 {
     vec3d normal = calculateNormal(tri);
-    vec3d toTriangle = vecSubtract(tri.p[0], cam.direction);
+    vec3d viewDirection = vecSubtract(tri.p[0], c.position);
 
-    return dot(normal, toTriangle) > 0;// Если скалярное произведение отрицательное, треугольник направлен в сторону камеры
+    // Нормализуем векторы
+    normal = normalize(normal);
+    viewDirection = normalize(viewDirection);
+
+    // Треугольник видим, если нормаль направлена ПРОТИВ вектора взгляда
+    return dot(normal, viewDirection) < 0.0f;
 }
 
 // Функция умножения матрицы на вектор
@@ -323,8 +328,9 @@ vec3d scaleToScreen(const vec3d &point)
 // Функция для рисования треугольника с учетом всех преобразований
 void drawTriangle(triangle tri, const matrx4d& projMatrix, const matrx4d& viewMatrix,
                  const matrx4d& scaleMatrix, const matrx4d& rotMatrix, const matrx4d& transMatrix) {
+    bool allOutside = true;
     for (int i = 0; i < 3; i++) {
-        // Правильный порядок: Масштаб > Поворот > Перемещение > Вид > Проекция
+        // Масштаб > Поворот > Перемещение > Вид > Проекция
         vec3d point = tri.p[i];
         point = matVecMult(scaleMatrix, point);
         point = matVecMult(rotMatrix, point);
@@ -332,7 +338,14 @@ void drawTriangle(triangle tri, const matrx4d& projMatrix, const matrx4d& viewMa
         point = matVecMult(viewMatrix, point);
         point = matVecMult(projMatrix, point);
         tri.p[i] = scaleToScreen(point);
+        // Проверка попадания в экран
+        if (tri.p[i].x >= 0 && tri.p[i].x < width &&
+            tri.p[i].y >= 0 && tri.p[i].y < height) {
+            allOutside = false;
+        }
     }
+
+    if(allOutside) return;
 
     drawLine(tri.p[0].x, tri.p[0].y, tri.p[1].x, tri.p[1].y);
     drawLine(tri.p[1].x, tri.p[1].y, tri.p[2].x, tri.p[2].y);
@@ -452,7 +465,7 @@ matrx4d createProjMatrix(const float& aspect, const float& f)
 
 // Рисуем сетку
 void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& viewMatrix, float globalScale,
- 		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& cam) {
+ 		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& c) {
     // Создаём матрицу масштаба
     matrx4d scaleMatrix = createScaleMatrix(globalScale, globalScale, globalScale);
 
@@ -460,9 +473,9 @@ void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& v
     for (const triangle& trian : inputMesh.triangles) {
 
         // Проверяем видимость треугольника
-        //if (isTriangleVisible(trian, cam)) {
+        if (isTriangleVisible(trian, c)) {
             drawTriangle(trian, projMatrix, viewMatrix, scaleMatrix, rotMatrix, transMatrix); // Отрисовка видимого треугольника
-        //}
+        }
     }
 }
 
@@ -833,12 +846,12 @@ bool &showMenu, WINDOW* &win, int &currBtn)
             // Поворот камеры по горизонтали (мышь X)
             float angleY = deltaX * 0.01f;
             float oldDirX = cam.direction.x;
-            cam.direction.x = cam.direction.x * cos(angleY) - cam.direction.z * sin(angleY);
-            cam.direction.z = oldDirX * sin(angleY) + cam.direction.z * cos(angleY);
+            cam.direction.x = cam.direction.x * cos(-angleY) - cam.direction.z * sin(-angleY);
+            cam.direction.z = oldDirX * sin(-angleY) + cam.direction.z * cos(-angleY);
 
             // Наклон камеры по вертикали (мышь Y)
             float angleX = deltaY * 0.01f;
-            cam.direction.y += angleX;
+            cam.direction.y -= angleX;
         }
         prevMouseX = event.x;
         prevMouseY = event.y;
@@ -1265,6 +1278,5 @@ int main()
     endwin();
     return 0;
 }
-
 
 
