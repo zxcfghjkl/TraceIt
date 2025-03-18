@@ -50,6 +50,7 @@ struct triangle
 // Сетка
 struct mesh {
     vector<triangle> triangles; // Массив треугольников, составляющих сетку
+    vec3d boxSize; // Размер модели (и хитбокса)
 };
 
 
@@ -59,6 +60,15 @@ struct camera
     vec3d position;  // Позиция камеры
     vec3d direction; // Направление взгляда
     vec3d up;        // Вектор "вверх" камеры
+};
+
+// Коллайдер beta
+struct collider {
+    vec3d center;
+    vec3d size; // Для AABB (коробки)
+    float radius; // Для сферы
+    bool isSphere;
+    bool isStatic;
 };
 
 // Структура, описавающая физическое тело
@@ -75,6 +85,7 @@ struct object
     vector<vec3d> trajectory; // История позиций
     int maxTrajectoryPoints = 300; // Макс. точек траектории
     bool trajWritten = false;
+    collider col;
 };
 
 // Совокупность всех физических тел в мире и параметров мира
@@ -112,28 +123,34 @@ camera cam = {
 };
 
 // Функция, использующая алгоритм Брезенхема для рисования линий
-void drawLine(int x1, int y1, int x2, int y2)
-{
-    int dx = abs(x2 - x1);       // Разница по X
-    int dy = abs(y2 - y1);       // Разница по Y
-    int sx = (x1 < x2) ? 1  : -1; // Направление движения по X
-    int sy = (y1 < y2) ? 1 : -1; // Направление движения по Y
-    int err = dx - dy;           // Начальная ошибка
+void drawLine(int x1, int y1, int x2, int y2) {
+    // Проверка выхода за пределы экрана
+    if ((x1 < 0 && x2 < 0) || (x1 >= width && x2 >= width) ||
+        (y1 < 0 && y2 < 0) || (y1 >= height && y2 >= height)) {
+        return;
+    }
 
-    while (true)
-    {
-        mvaddch(y1, x1, '*'); // Рисуем символ '*' в текущей позиции
-        if (x1 == x2 && y1 == y2)
-            break; // Если достигли конца линии, выходим из цикла
+    // Сам Брезенхем
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1;
+    int sy = (y1 < y2) ? 1 : -1;
+    int err = dx - dy;
+
+    while (true) {
+        // Проверка границ перед рисованием
+        if (x1 >= 0 && x1 < width && y1 >= 0 && y1 < height) {
+            mvaddch(y1, x1, '*');
+        }
+
+        if (x1 == x2 && y1 == y2) break;
 
         int e2 = 2 * err;
-        if (e2 > -dy)
-        { // Корректируем ошибку для X
+        if (e2 > -dy) {
             err -= dy;
             x1 += sx;
         }
-        if (e2 < dx)
-        { // Корректируем ошибку для Y
+        if (e2 < dx) {
             err += dx;
             y1 += sy;
         }
@@ -273,12 +290,17 @@ vec3d calculateNormal(const triangle &tri)
 }
 
 // А вот и она
-bool isTriangleVisible(const triangle &tri, const camera& cam)
+bool isTriangleVisible(const triangle &tri, const camera& c)
 {
     vec3d normal = calculateNormal(tri);
-    vec3d toTriangle = vecSubtract(tri.p[0], cam.direction);
+    vec3d viewDirection = vecSubtract(tri.p[0], c.position);
 
-    return dot(normal, toTriangle) > 0;// Если скалярное произведение отрицательное, треугольник направлен в сторону камеры
+    // Нормализуем векторы
+    normal = normalize(normal);
+    viewDirection = normalize(viewDirection);
+
+    // Треугольник видим, если нормаль направлена ПРОТИВ вектора взгляда
+    return dot(normal, viewDirection) < 0.0f;
 }
 
 // Функция умножения матрицы на вектор
@@ -306,8 +328,9 @@ vec3d scaleToScreen(const vec3d &point)
 // Функция для рисования треугольника с учетом всех преобразований
 void drawTriangle(triangle tri, const matrx4d& projMatrix, const matrx4d& viewMatrix,
                  const matrx4d& scaleMatrix, const matrx4d& rotMatrix, const matrx4d& transMatrix) {
+    bool allOutside = true;
     for (int i = 0; i < 3; i++) {
-        // Правильный порядок: Масштаб > Поворот > Перемещение > Вид > Проекция
+        // Масштаб > Поворот > Перемещение > Вид > Проекция
         vec3d point = tri.p[i];
         point = matVecMult(scaleMatrix, point);
         point = matVecMult(rotMatrix, point);
@@ -315,7 +338,14 @@ void drawTriangle(triangle tri, const matrx4d& projMatrix, const matrx4d& viewMa
         point = matVecMult(viewMatrix, point);
         point = matVecMult(projMatrix, point);
         tri.p[i] = scaleToScreen(point);
+        // Проверка попадания в экран
+        if (tri.p[i].x >= 0 && tri.p[i].x < width &&
+            tri.p[i].y >= 0 && tri.p[i].y < height) {
+            allOutside = false;
+        }
     }
+
+    if(allOutside) return;
 
     drawLine(tri.p[0].x, tri.p[0].y, tri.p[1].x, tri.p[1].y);
     drawLine(tri.p[1].x, tri.p[1].y, tri.p[2].x, tri.p[2].y);
@@ -435,7 +465,7 @@ matrx4d createProjMatrix(const float& aspect, const float& f)
 
 // Рисуем сетку
 void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& viewMatrix, float globalScale,
- 		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& cam) {
+ 		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& c) {
     // Создаём матрицу масштаба
     matrx4d scaleMatrix = createScaleMatrix(globalScale, globalScale, globalScale);
 
@@ -443,7 +473,7 @@ void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& v
     for (const triangle& trian : inputMesh.triangles) {
 
         // Проверяем видимость треугольника
-        if (isTriangleVisible(trian, cam)) {
+        if (isTriangleVisible(trian, c)) {
             drawTriangle(trian, projMatrix, viewMatrix, scaleMatrix, rotMatrix, transMatrix); // Отрисовка видимого треугольника
         }
     }
@@ -473,9 +503,7 @@ string consoleIn() {
     return input;
 }
 
-object createCubeObject(const float &scale, const vec3d &pos,
-                        const vec3d &vel, const vec3d &force,
-                        const float &mass, const float &area, const float &Cd) {
+mesh createCubeMesh(const float &scale) {
     mesh cubeMesh;
 
     // Масштабирование вершины
@@ -536,23 +564,94 @@ object createCubeObject(const float &scale, const vec3d &pos,
         cubeMesh.triangles.push_back(tri);
     }
 
-    // Создаем обьект
-    object cubeObj;
-    cubeObj.pos = pos;
-    cubeObj.transform = createTranslationMatrix(pos.x, pos.y, pos.z);
-    cubeObj.vel = vel;
-    cubeObj.force = force;
-    cubeObj.mass = mass;
-    cubeObj.Cd = Cd;
-    cubeObj.area = area;
-    cubeObj.model.triangles.assign(begin(cubeTriangles), end(cubeTriangles));
-
-    return cubeObj;
+    return cubeMesh;
 }
 
 // Обновление матрицы трансляции в обьекте
 void updateObjectTransform(object& obj) {
     obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
+}
+
+
+// Функция проверки коллизий Коробка-Коробка
+bool checkAABBCollision(const collider& a, const collider& b) {
+    return (abs(a.center.x - b.center.x) <= (a.size.x + b.size.x) &&
+            abs(a.center.y - b.center.y) <= (a.size.y + b.size.y) &&
+            abs(a.center.z - b.center.z) <= (a.size.z + b.size.z));
+}
+
+// Функция проверки коллизий Сфера-Сфера
+bool checkSphereCollision(const collider& a, const collider& b) {
+    vec3d delta = vecSubtract(a.center, b.center);
+    float distance = sqrt(dot(delta, delta));
+    return distance <= (a.radius + b.radius);
+}
+
+// Обновляем БАК
+void updateCollider(object& obj) {
+    obj.col.center = obj.pos;
+
+    // Если сфера
+    if(!obj.col.isSphere) {
+        obj.col.size = multVecScal(obj.model.boxSize, obj.transform.m[0][0]);
+    }
+}
+
+// Коллизии, коллизии, коллизии...
+void resolveCollisions(world& w) {
+    for(size_t i = 0; i < w.objects.size(); ++i) {
+        for(size_t j = i+1; j < w.objects.size(); ++j) {
+            object& a = w.objects[i];
+            object& b = w.objects[j];
+
+            if(a.col.isStatic && b.col.isStatic) continue;
+
+            bool collision = false;
+            if(a.col.isSphere && b.col.isSphere) {
+                collision = checkSphereCollision(a.col, b.col);
+            } else {
+                collision = checkAABBCollision(a.col, b.col);
+            }
+
+            if(collision) {
+                // Расчет нормали столкновения
+                vec3d normal = normalize(vecSubtract(b.pos, a.pos));
+
+                // Расчет относительной скорости
+                vec3d relVelocity = vecSubtract(b.vel, a.vel);
+                float velAlongNormal = dot(relVelocity, normal);
+
+                // Если объекты уже удаляются друг от друга
+                if(velAlongNormal > 0) continue;
+
+                // Коэффициент упругости
+                float e = 0.8f;
+                float j = -(1 + e) * velAlongNormal;
+                j /= (1/a.mass + 1/b.mass);
+
+                // Применение импульсов
+                vec3d impulse = multVecScal(normal, j);
+
+                if(!a.col.isStatic) {
+                    a.vel = vecSubtract(a.vel, multVecScal(impulse, 1/a.mass));
+                }
+                if(!b.col.isStatic) {
+                    b.vel = vecAdd(b.vel, multVecScal(impulse, 1/b.mass));
+                }
+
+                // Коррекция позиции
+                float penetration = 0.1f;
+                vec3d correction = multVecScal(normal, penetration);
+
+                if(!a.col.isStatic) {
+                    a.pos = vecSubtract(a.pos, multVecScal(correction, 1/a.mass));
+                }
+                if(!b.col.isStatic) {
+                    b.pos = vecAdd(b.pos, multVecScal(correction, 1/b.mass));
+                }
+            }
+        }
+    }
 }
 
 // Обновление физики в мире
@@ -593,6 +692,9 @@ void updatePhysics(world& w, ofstream& coords) {
         obj.vel = vecAdd(obj.vel, multVecScal(acceleration, dt));
         obj.pos = vecAdd(obj.pos, multVecScal(obj.vel, dt));
 
+        // Обновляем коллайдеры
+        updateCollider(obj);
+
         // Добавляем позицию в историю
         obj.trajectory.push_back(obj.pos);
 
@@ -602,20 +704,21 @@ void updatePhysics(world& w, ofstream& coords) {
             for(const auto& point : obj.trajectory) {
                 coords << point.x << "(м)\t" << point.y << "(м)\t" << point.z << "(м)\n";
             }
-            obj.trajWritten = true;
+                obj.trajWritten = true;
             }
 
         coords.close(); // Закрываем файл после обработки всех объектов
 
         // Ограничиваем длину траектории
         if(obj.trajectory.size() > obj.maxTrajectoryPoints) {
-        obj.trajectory.erase(obj.trajectory.begin());
-       }
+            obj.trajectory.erase(obj.trajectory.begin());
+        }
         // Обновляем матрицу
         updateObjectTransform(obj);
         obj.force = {0, 0, 0}; // Сброс внешних сил
     }
-
+    // Проверяем и разрешаем коллизии
+    resolveCollisions(w);
 }
 
 // Рисование траектории тела
@@ -649,6 +752,7 @@ void drawWorld(world &w, matrx4d &rotMatrix, const camera& cam)
 {
     for (auto &b : w.objects) { // Для каждого тела в массиве "theWorld.objects"
         // Рисование обьекта
+        // matrx4d tfMatrix = matMult(scaleMatrix, (matMult(rotMatrix, (matMult(obj.transform, (matMult(w.projMatrix, w.viewMatrix))))))
         drawMesh(b.model, w.projMatrix, w.viewMatrix,
                  w.globalScale, rotMatrix, b.transform, cam);
 
@@ -729,41 +833,50 @@ void handleInput(int &ch, camera &cam, world &w,
 float &fov, float &magn, vector<button>& buttons,
 bool &showMenu, WINDOW* &win, int &currBtn)
 {
+        static int prevMouseX = -1, prevMouseY = -1;
+        MEVENT event;
         ch = getch();
-        if (ch == '+')       // Если нажата клавиша '+'
-            w.globalScale += 0.1f * magn; // Увеличить масштаб
-        else if (ch == '-')  // Если нажата клавиша '-'
-            w.globalScale -= 0.1f * magn; // Уменьшить масштаб
-        else if (ch == KEY_UP) // Перемещение камеры вперед
-            cam.position.z += 0.1f * magn;
-        else if (ch == KEY_DOWN) // Перемещение камеры назад
-            cam.position.z -= 0.1f * magn;
-        else if (ch == 'd') // Перемещение камеры вверх
-            cam.position.y -= 0.1f * magn;
-        else if (ch == 'a') // Перемещение камеры вниз
-            cam.position.y += 0.1f * magn;
-        else if (ch == 's') // Наклон вверх
-            cam.direction.y -= 0.1f;
-        else if (ch == 'w') // Наклон вниз
-            cam.direction.y += 0.1f;
-        else if (ch == 'z') // Влево
-            cam.position.x -= 0.1f * magn;
-        else if (ch == 'x') // Вправо
-            cam.position.x += 0.1f * magn;
-        else if (ch == KEY_LEFT) // Поворот камеры влево
-        {
-            float angle = 0.1f;
-            cam.direction.x = cam.direction.x * cos(angle) - cam.direction.z * sin(angle);
-            cam.direction.z = cam.direction.x * sin(angle) + cam.direction.z * cos(angle);
+        // Обработка мыши
+    if (ch == KEY_MOUSE && getmouse(&event) == OK) {
+        // Смещение мыши
+        if (prevMouseX != -1 && prevMouseY != -1) {
+            int deltaX = event.x - prevMouseX;
+            int deltaY = event.y - prevMouseY;
+
+            // Поворот камеры по горизонтали (мышь X)
+            float angleY = deltaX * 0.01f;
+            float oldDirX = cam.direction.x;
+            cam.direction.x = cam.direction.x * cos(-angleY) - cam.direction.z * sin(-angleY);
+            cam.direction.z = oldDirX * sin(-angleY) + cam.direction.z * cos(-angleY);
+
+            // Наклон камеры по вертикали (мышь Y)
+            float angleX = deltaY * 0.01f;
+            cam.direction.y -= angleX;
         }
-        else if (ch == KEY_RIGHT) // Поворот камеры вправо
-        {
-            float angle = -0.1f;
-            cam.direction.x = cam.direction.x * cos(angle) - cam.direction.z * sin(angle);
-            cam.direction.z = cam.direction.x * sin(angle) + cam.direction.z * cos(angle);
-        }else if (ch == ']') // Увеличение магнитуды
+        prevMouseX = event.x;
+        prevMouseY = event.y;
+    }
+    else {
+        // Остальное
+        if (ch == '+')
+            w.globalScale += 0.1f * magn;
+        else if (ch == '-')
+            w.globalScale -= 0.1f * magn;
+        else if (ch == KEY_UP)
+            cam.position.z += 0.1f * magn;
+        else if (ch == KEY_DOWN)
+            cam.position.z -= 0.1f * magn;
+        else if (ch == 'd')
+            cam.position.y -= 0.1f * magn;
+        else if (ch == 'a')
+            cam.position.y += 0.1f * magn;
+        else if (ch == 'z')
+            cam.position.x -= 0.1f * magn;
+        else if (ch == 'x')
+            cam.position.x += 0.1f * magn;
+        else if (ch == ']')
             magn += 1.0f;
-	    else if (ch == '[') // Уменьшение магнитуды
+        else if (ch == '[')
             magn -= 1.0f;
         else if (ch == 'm') // Главное меню
         {
@@ -845,6 +958,7 @@ bool &showMenu, WINDOW* &win, int &currBtn)
 	    if(magn < 0)
 	        magn = 0.0f;
     }
+}
 
 // Счет треугольников
 size_t cntTris(const world& w)
@@ -871,11 +985,11 @@ vector<button> buttons  = {
 button cw = {CHECKBOX, static_cast<int>((LINES - 2) / 2), 15, .targetBool = &start, "Create New World"};
 
 while(!start) {
-          getmaxyx(stdscr, height, width);
+      getmaxyx(stdscr, height, width);
 	  if(w->objects.size() > 0  && !put)
 	  {
-	  buttons.push_back(cw);
-	  put = true;
+	    buttons.push_back(cw);
+	    put = true;
 	  }
 	  WINDOW* win = createWindow(buttons, height - 1, width - 4, -1, -1,
                                   COLOR_WHITE, COLOR_BLACK,
@@ -990,9 +1104,14 @@ while(!start) {
                 printw("Not a number, defaulting to: %.2f", obj.pos.z);
            }
  	obj.force = {0, 0, 0};
-	obj.model = loadFromObjectFile("teapot.obj");
+	obj.model = createCubeMesh(2.0f);//loadFromObjectFile("teapot.obj");
 	w->objects.push_back(obj);
 	nObj = false;
+	// Инициализация коллайдера
+    obj.col.center = obj.pos;
+    obj.col.size = {2, 2, 2};
+    obj.col.isSphere = false;
+    obj.col.isStatic = false;
 	clear();
 	refresh();
 	}
@@ -1018,8 +1137,6 @@ while(!start) {
 	try {
 		if((ad = stof(consoleIn())) <  0.0f) {
         	w->atmDensity = 1.125f;
-        	clear();
-        	refresh();
         	}
         	else
        		w->atmDensity = ad;
@@ -1038,6 +1155,8 @@ while(!start) {
        		w->atmDensity = g;
                 } catch (const std::invalid_argument& e) {
                 printw("Not a number, defaulting to: %.2f", w->g);
+                clear();
+	            refresh();
 	}
 }
 
@@ -1052,6 +1171,9 @@ int main()
     nodelay(stdscr, TRUE);  // Включаем неблокирующий ввод
     curs_set(0);             // Скрываем курсор
     start_color();          // Включение цвета (пока только для меню)
+    // Мышь
+    mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
+    printf("\033[?1003h\n"); // Для iterm?
 
     // Создание мира
     world w;
@@ -1059,30 +1181,27 @@ int main()
 
     // Создаем таблицу координат
     ofstream coords;
-    bool enablePhysics = false;
-    bool enableTriCnt = true;
 
-    //for(int i = 0; i < 2; i++){
-    //vec3d objPos = {static_cast<float>(-i * 6), 0, 0};
-    //vec3d objVel = {0, 0, 0};
-    //vec3d objForce = {0, 0, 0};
-    //object cube = createCubeObject(0.5f, objPos, objVel, objForce, i * 1.0f, i * 1.09f, i * 0.1f);
-    //cube.model = loadFromObjectFile("teapot.obj");
-    //w.objects.push_back(cube);
-    //}
-
-    // Коеффициент масштаба и плотности атмосферы
+    // Глобальные переменные
     w.globalScale = 1.0f;
-    //w.atmDensity = 1.225;
-
-
+    int frames = 0;
+    int currBtn = 0;
     float rotAngle = 0.0f;
     float magn = 1.0f;
-    int frames = 0;
     float fov = 90.0;
     float objIndex = 0;
     bool isRunning = true;
     bool debug = false;
+    bool enablePhysics = false;
+    bool enableTriCnt = true;
+    bool showMenu = false;
+
+    // Матрицы
+    matrx4d scaleMatrix;
+    matrx4d rotMatrix;
+    matrx4d rotX;
+    matrx4d rotY;
+    matrx4d rotZ;
 
     // Кнопки главного меню
     vector<button> mainM = {
@@ -1102,70 +1221,62 @@ int main()
         };
 
     WINDOW* win = nullptr;
-    bool showMenu = false;
-    int currBtn = 0;
+
     // Главный цикл
     while (isRunning)
     {
-        if(!showMenu) {
         // Получение и вывод размера консоли
         getmaxyx(stdscr, height, width);
         float aspect = static_cast<float>(height) / static_cast<float>(width);
+        if(!showMenu) {
+            clear(); // Очистка экрана
+            rotAngle += 0.02f;
+            rotX = createRotationX(rotAngle);
+            rotY = createRotationY(rotAngle);
+	        rotZ = createRotationZ(rotAngle);
 
-        rotAngle += 0.02f;
-        matrx4d rotX = createRotationX(rotAngle);
-        matrx4d rotY = createRotationY(rotAngle);
-	      matrx4d rotZ = createRotationZ(rotAngle);
+            rotMatrix = matMult(rotX, rotY);
+	        rotMatrix = matMult(rotMatrix, rotZ); // Комбинирование поворотов
+            // Создание матрицы проекции
+            w.projMatrix = createProjMatrix(aspect, fov);
+            // Создание матрицы вида для камеры
+	        w.viewMatrix = createViewMatrix(cam);
+            // Создание матрицы масштаба
+	        scaleMatrix = createScaleMatrix(w.globalScale, w.globalScale, w.globalScale);
 
-        matrx4d rotMatrix = matMult(rotX, rotY);
-	    rotMatrix = matMult(rotMatrix, rotZ); // Комбинирование поворотов
+	        if(enablePhysics) updatePhysics(w, coords);
+	        drawWorld(w, rotMatrix, cam);
+	        if(enableTriCnt) mvprintw(height - 3, 0, "All Triangles: %.i", cntTris(w));
 
-        clear(); // Очистка экрана
-
-        // Создание матрицы проекции
-        w.projMatrix = createProjMatrix(aspect, fov);
-
-        // Создание матрицы вида для камеры
-	    w.viewMatrix = createViewMatrix(cam);
-
-	      // Создание матрицы масштаба
-	    matrx4d scaleMatrix = createScaleMatrix(w.globalScale, w.globalScale, w.globalScale);
-
-	    if(enablePhysics) updatePhysics(w, coords);
-	    drawWorld(w, rotMatrix, cam);
-	    if(enableTriCnt) mvprintw(height - 3, 0, "All Triangles: %.i", cntTris(w));
-
-        if(debug){
-            move(4, 0);
-            printw("Scale: %f\n", w.globalScale);
-            move(5, 0);
-            printw("Camera position: (x%.2f, y%.2f, z%.2f tilt%.2f) \n", cam.position.x, cam.position.y, cam.position.z, cam.direction.y);
-
-	        move(6, 0);
-	        printw("Frame #%i", frames);
-
-	        move(7, 0);
-	        printw("Obj. Pos. x %.2f, y %.2f, z %.2f", w.objects[objIndex].pos.x, w.objects[objIndex].pos.y, w.objects[objIndex].pos.z);
-
-	        move(8, 0);
-	        printw("Obj. Vel. x %.2f, y %.2f, z %.2f", w.objects[objIndex].vel.x, w.objects[objIndex].vel.y, w.objects[objIndex].vel.z);
+            if(debug){
+                move(4, 0);
+                printw("Scale: %f\n", w.globalScale);
+                move(5, 0);
+                printw("Camera position: (x%.2f, y%.2f, z%.2f tilt%.2f) \n", cam.position.x, cam.position.y, cam.position.z, cam.direction.y);
+	            move(6, 0);
+	            printw("Frame #%i", frames);
+	            move(7, 0);
+	            printw("Obj. Pos. x %.2f, y %.2f, z %.2f", w.objects[objIndex].pos.x, w.objects[objIndex].pos.y, w.objects[objIndex].pos.z);
+	            move(8, 0);
+	            printw("Obj. Vel. x %.2f, y %.2f, z %.2f", w.objects[objIndex].vel.x, w.objects[objIndex].vel.y, w.objects[objIndex].vel.z);
+	            move(9, 0);
+	            printw("Terminal Dimensions: Columns %i, Rows %i,", width, height);
         }
     }
-            // Обработка ввода
+        // Обработка ввода
         int ch;
         handleInput(ch, cam, w, fov, magn, mainM, showMenu, win, currBtn);
 
         refresh(); // Обновление экрана
 
-            // Примерно 60 к/c
-            frames++;
-            usleep(16666);
+        // Примерно 60 к/c (без лага)
+        frames++;
+        usleep(16600);
     }
 
-        // Завершение работы ncurses
+    // Завершение работы ncurses
     endwin();
     return 0;
 }
-
 
 
