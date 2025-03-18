@@ -1,4 +1,4 @@
-// Для ?
+// Для загрузки модели, избавиться.
 #include <strstream>
 // Для дебаггинга
 #include <iostream>
@@ -69,6 +69,7 @@ struct collider {
     float radius; // Для сферы
     bool isSphere;
     bool isStatic;
+    float rest;  // Упругость
 };
 
 // Структура, описавающая физическое тело
@@ -82,6 +83,7 @@ struct object
     matrx4d transform; // Матрица трансформации обьекта, добавить rotMatrix
     float Cd; // Сопротивление формы
     float area;  // Площадь поперечного сечения
+    bool stationary; // Не подвергается физике
     vector<vec3d> trajectory; // История позиций
     int maxTrajectoryPoints = 300; // Макс. точек траектории
     bool trajWritten = false;
@@ -162,11 +164,13 @@ mesh loadFromObjectFile(string sFilename)
 	{
 	    mesh outputMesh;
 
+        // Открываем файл
 		ifstream f(sFilename);
 
 		// Локальный кеш вершин
 		vector<vec3d> verts;
 
+        // Пока не закончился
 		while (!f.eof())
 		{
 			char line[128];
@@ -177,6 +181,7 @@ mesh loadFromObjectFile(string sFilename)
 
 			char junk;
 
+            // Если 1 строка - вершина
 			if (line[0] == 'v')
 			{
 				vec3d v;
@@ -184,6 +189,7 @@ mesh loadFromObjectFile(string sFilename)
 				verts.push_back(v);
 			}
 
+            // Это - не нужно
 			if (line[0] == 'f')
 			{
 				int f[3];
@@ -453,8 +459,8 @@ matrx4d createProjMatrix(const float& aspect, const float& f)
         const float far = 100.0f;
         const float fov = f * M_PI / 180.0f;
         const float fovRad = 1.0f / tan(fov * 0.5f);
-        matrx4d projMatrix = {{ // 2.333 - соотношение сторон символа
-          {fovRad * aspect * 2.333f, 0.0f, 0.0f, 0.0f},
+        matrx4d projMatrix = {{ // 2.519 - соотношение сторон символа
+          {fovRad * aspect * 2.519f, 0.0f, 0.0f, 0.0f},
           {0.0f,            fovRad,    0.0f,                 0.0f},
           {0.0f,            0.0f,      (far + near)/(far - near), 1.0f},
           {0.0f,            0.0f,      (-2.0f * far * near)/(far - near), 0.0f}
@@ -473,9 +479,9 @@ void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& v
     for (const triangle& trian : inputMesh.triangles) {
 
         // Проверяем видимость треугольника
-        if (isTriangleVisible(trian, c)) {
+        //if (isTriangleVisible(trian, c)) {
             drawTriangle(trian, projMatrix, viewMatrix, scaleMatrix, rotMatrix, transMatrix); // Отрисовка видимого треугольника
-        }
+        //}
     }
 }
 
@@ -567,6 +573,25 @@ mesh createCubeMesh(const float &scale) {
     return cubeMesh;
 }
 
+// Нормаль коробки
+vec3d calculateAABBNormal(const collider& a, const collider& b) {
+    vec3d delta = vecSubtract(b.center, a.center);
+    vec3d overlap = {
+        (a.size.x + b.size.x) - abs(delta.x),
+        (a.size.y + b.size.y) - abs(delta.y),
+        (a.size.z + b.size.z) - abs(delta.z)
+    };
+
+    // Находим ось с минимальным перекрытием
+    if(overlap.x < overlap.y && overlap.x < overlap.z) {
+        return {delta.x > 0 ? 1.0f : -1.0f, 0, 0};
+    } else if(overlap.y < overlap.z) {
+        return {0, delta.y > 0 ? 1.0f : -1.0f, 0};
+    } else {
+        return {0, 0, delta.z > 0 ? 1.0f : -1.0f};
+    }
+}
+
 // Обновление матрицы трансляции в обьекте
 void updateObjectTransform(object& obj) {
     obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
@@ -575,26 +600,27 @@ void updateObjectTransform(object& obj) {
 
 // Функция проверки коллизий Коробка-Коробка
 bool checkAABBCollision(const collider& a, const collider& b) {
-    return (abs(a.center.x - b.center.x) <= (a.size.x + b.size.x) &&
+    return (abs(a.center.x - b.center.x) <= (a.size.x + b.size.x) && // Расстояние между центрами a и b меньше/равно сумме их размеров
             abs(a.center.y - b.center.y) <= (a.size.y + b.size.y) &&
             abs(a.center.z - b.center.z) <= (a.size.z + b.size.z));
 }
 
 // Функция проверки коллизий Сфера-Сфера
 bool checkSphereCollision(const collider& a, const collider& b) {
-    vec3d delta = vecSubtract(a.center, b.center);
-    float distance = sqrt(dot(delta, delta));
-    return distance <= (a.radius + b.radius);
+    vec3d delta = vecSubtract(a.center, b.center); // ~ Тоже самое
+    float distanceSq = dot(delta, delta);
+    float radiusSum = a.radius + b.radius;
+    return distanceSq <= (radiusSum * radiusSum);
 }
 
 // Обновляем БАК
 void updateCollider(object& obj) {
     obj.col.center = obj.pos;
 
-    // Если сфера
-    if(!obj.col.isSphere) {
-        obj.col.size = multVecScal(obj.model.boxSize, obj.transform.m[0][0]);
-    }
+    // Если не сфера
+    //if(!obj.col.isSphere) {
+        //obj.col.size = multVecScal(obj.model.boxSize, obj.transform.m[0][0]);
+    //}
 }
 
 // Коллизии, коллизии, коллизии...
@@ -605,27 +631,28 @@ void resolveCollisions(world& w) {
             object& b = w.objects[j];
 
             if(a.col.isStatic && b.col.isStatic) continue;
+            if(a.mass <= 0 || b.mass <= 0) continue;
 
             bool collision = false;
+            vec3d normal;
+
             if(a.col.isSphere && b.col.isSphere) {
                 collision = checkSphereCollision(a.col, b.col);
+                if(collision) normal = normalize(vecSubtract(b.col.center, a.col.center));
             } else {
                 collision = checkAABBCollision(a.col, b.col);
+                if(collision) normal = calculateAABBNormal(a.col, b.col);
             }
 
             if(collision) {
-                // Расчет нормали столкновения
-                vec3d normal = normalize(vecSubtract(b.pos, a.pos));
-
-                // Расчет относительной скорости
+                // Относительная скорость
                 vec3d relVelocity = vecSubtract(b.vel, a.vel);
                 float velAlongNormal = dot(relVelocity, normal);
 
-                // Если объекты уже удаляются друг от друга
                 if(velAlongNormal > 0) continue;
 
-                // Коэффициент упругости
-                float e = 0.8f;
+                // Импульс
+                float e = std::min(a.col.rest, b.col.rest);
                 float j = -(1 + e) * velAlongNormal;
                 j /= (1/a.mass + 1/b.mass);
 
@@ -639,9 +666,10 @@ void resolveCollisions(world& w) {
                     b.vel = vecAdd(b.vel, multVecScal(impulse, 1/b.mass));
                 }
 
-                // Коррекция позиции
-                float penetration = 0.1f;
-                vec3d correction = multVecScal(normal, penetration);
+                // Коррекция позиции (менее 1% от перекрытия)
+                const float penetrationSlop = 0.01f;
+                const float percent = 0.2f;
+                vec3d correction = multVecScal(normal, percent * penetrationSlop);
 
                 if(!a.col.isStatic) {
                     a.pos = vecSubtract(a.pos, multVecScal(correction, 1/a.mass));
@@ -670,52 +698,55 @@ void updatePhysics(world& w, ofstream& coords) {
     }
 
     for(auto& obj : w.objects) {
-        // Рассчитываем скорость^2
-        float speedSq = dot(obj.vel, obj.vel);
+        if(!obj.stationary)
+        {
+            // Рассчитываем скорость^2
+            float speedSq = dot(obj.vel, obj.vel);
 
-        // Нормализуем скорость для направления
-        vec3d velDir = {0, 0, 0};
-        if(speedSq > 0.0001f) { // Избегаем деления на ноль
-            float invSpeed = 1.0f / sqrt(speedSq); // Скорость, противоположная по длине
-            velDir = {obj.vel.x * invSpeed, obj.vel.y * invSpeed, obj.vel.z * invSpeed};
-        }
-
-        // Формула силы сопротивления: Fd = -0.5 * p * v^2 * Cd * A * направление_скорости
-        vec3d Fd = multVecScal(velDir, -0.5f * w.atmDensity * obj.Cd * obj.area * speedSq);
-
-        // Суммируем все силы (Fd + Fgravity + Fother)
-        vec3d totalForce = vecAdd(Fd, multVecScal(gravity, obj.mass));
-        totalForce = vecAdd(totalForce, obj.force); // Добавляем другие силы
-
-        // Интегрируем
-        vec3d acceleration = divVecScal(totalForce, obj.mass);
-        obj.vel = vecAdd(obj.vel, multVecScal(acceleration, dt));
-        obj.pos = vecAdd(obj.pos, multVecScal(obj.vel, dt));
-
-        // Обновляем коллайдеры
-        updateCollider(obj);
-
-        // Добавляем позицию в историю
-        obj.trajectory.push_back(obj.pos);
-
-         // Записываем траекторию, если объект ещё не записан
-        if(obj.trajectory.size() == obj.maxTrajectoryPoints && !obj.trajWritten) {
-            coords << "\nТраектория объекта [" << "obj.id" << "]:\n"; // Добавляем ID объекта
-            for(const auto& point : obj.trajectory) {
-                coords << point.x << "(м)\t" << point.y << "(м)\t" << point.z << "(м)\n";
+            // Нормализуем скорость для направления
+            vec3d velDir = {0, 0, 0};
+            if(speedSq > 0.0001f) { // Избегаем деления на ноль
+                float invSpeed = 1.0f / sqrt(speedSq); // Скорость, противоположная по длине
+                velDir = {obj.vel.x * invSpeed, obj.vel.y * invSpeed, obj.vel.z * invSpeed};
             }
+
+            // Формула силы сопротивления: Fd = -0.5 * p * v^2 * Cd * A * направление_скорости
+            vec3d Fd = multVecScal(velDir, -0.5f * w.atmDensity * obj.Cd * obj.area * speedSq);
+
+            // Суммируем все силы (Fd + Fgravity + Fother)
+            vec3d totalForce = vecAdd(Fd, multVecScal(gravity, obj.mass));
+            totalForce = vecAdd(totalForce, obj.force); // Добавляем другие силы
+
+            // Интегрируем
+            vec3d acceleration = divVecScal(totalForce, obj.mass);
+            obj.vel = vecAdd(obj.vel, multVecScal(acceleration, dt));
+            obj.pos = vecAdd(obj.pos, multVecScal(obj.vel, dt));
+
+            // Обновляем коллайдеры
+            updateCollider(obj);
+
+            // Добавляем позицию в историю
+            obj.trajectory.push_back(obj.pos);
+
+            // Записываем траекторию, если объект ещё не записан
+            if(obj.trajectory.size() == obj.maxTrajectoryPoints && !obj.trajWritten) {
+                    coords << "\nТраектория объекта [" << "obj.id" << "]:\n"; // Добавляем ID объекта
+                for(const auto& point : obj.trajectory) {
+                    coords << point.x << "(м)\t" << point.y << "(м)\t" << point.z << "(м)\n";
+                }
                 obj.trajWritten = true;
             }
 
-        coords.close(); // Закрываем файл после обработки всех объектов
+            coords.close(); // Закрываем файл после обработки всех объектов
 
-        // Ограничиваем длину траектории
-        if(obj.trajectory.size() > obj.maxTrajectoryPoints) {
-            obj.trajectory.erase(obj.trajectory.begin());
+            // Ограничиваем длину траектории
+            if(obj.trajectory.size() > obj.maxTrajectoryPoints) {
+                obj.trajectory.erase(obj.trajectory.begin());
+            }
+            // Обновляем матрицу
+            updateObjectTransform(obj);
+            obj.force = {0, 0, 0}; // Сброс внешних сил
         }
-        // Обновляем матрицу
-        updateObjectTransform(obj);
-        obj.force = {0, 0, 0}; // Сброс внешних сил
     }
     // Проверяем и разрешаем коллизии
     resolveCollisions(w);
@@ -855,6 +886,12 @@ bool &showMenu, WINDOW* &win, int &currBtn)
         }
         prevMouseX = event.x;
         prevMouseY = event.y;
+        // Обработка колесика мыши
+        if (event.bstate & BUTTON5_PRESSED) {  // Прокрутка вверх
+            if (magn > 1) magn--;
+            } else if (event.bstate & BUTTON4_PRESSED) {  // Прокрутка вниз
+            magn++;
+            }
     }
     else {
         // Остальное
@@ -862,17 +899,17 @@ bool &showMenu, WINDOW* &win, int &currBtn)
             w.globalScale += 0.1f * magn;
         else if (ch == '-')
             w.globalScale -= 0.1f * magn;
-        else if (ch == KEY_UP)
-            cam.position.z += 0.1f * magn;
-        else if (ch == KEY_DOWN)
-            cam.position.z -= 0.1f * magn;
-        else if (ch == 'd')
-            cam.position.y -= 0.1f * magn;
-        else if (ch == 'a')
-            cam.position.y += 0.1f * magn;
+        else if (ch == 'w')
+            cam.position = vecAdd(cam.position, multVecScal(normalize(cam.direction), magn)); //cam.position.z += 0.1f * magn;
+        else if (ch == 's')
+            cam.position = vecSubtract(cam.position, multVecScal(normalize(cam.direction), magn));
         else if (ch == 'z')
+            cam.position.y -= 0.1f * magn;
+        else if (ch == ' ')
+            cam.position.y += 0.1f * magn;
+        else if (ch == 'a')
             cam.position.x -= 0.1f * magn;
-        else if (ch == 'x')
+        else if (ch == 'd')
             cam.position.x += 0.1f * magn;
         else if (ch == ']')
             magn += 1.0f;
@@ -1103,15 +1140,19 @@ while(!start) {
                 obj.pos.z = 0.0f;
                 printw("Not a number, defaulting to: %.2f", obj.pos.z);
            }
+    obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
  	obj.force = {0, 0, 0};
-	obj.model = createCubeMesh(2.0f);//loadFromObjectFile("teapot.obj");
-	w->objects.push_back(obj);
-	nObj = false;
+ 	obj.area = 2.0f;
+	obj.model = createCubeMesh(2.0f); //loadFromObjectFile("teapot.obj");
 	// Инициализация коллайдера
     obj.col.center = obj.pos;
     obj.col.size = {2, 2, 2};
     obj.col.isSphere = false;
     obj.col.isStatic = false;
+    obj.col.rest = 0.5;
+    obj.stationary = false;
+    w->objects.push_back(obj);
+    nObj = false;
 	clear();
 	refresh();
 	}
@@ -1165,18 +1206,30 @@ int main()
 {
     // Инициализация ncurses
     initscr();
-    cbreak();
-    noecho();               // Отключение вbвода
+    cbreak();               // Без enter
+    noecho();               // Отключение вывода
     keypad(stdscr, TRUE);   // Включение клавиш по типу стрелок
     nodelay(stdscr, TRUE);  // Включаем неблокирующий ввод
     curs_set(0);             // Скрываем курсор
     start_color();          // Включение цвета (пока только для меню)
     // Мышь
     mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
+    mouseinterval(0);  // Отключаем задержку для мыши
+    scrollok(stdscr, TRUE);  // Включаем скроллинг
     printf("\033[?1003h\n"); // Для iterm?
 
+    matrx4d tmp = createTranslationMatrix(0, -30, 0);
+
     // Создание мира
+    mesh m = createCubeMesh(200.0f);
     world w;
+    object floor = {{0, -30, 0}, {0, 0, 0}, {0, 0, 0}, 1000.0f, m, tmp, 10.0f, 4.0f, true};
+    floor.col.center = floor.pos;
+    floor.col.size = {200, 10, 200};
+    floor.col.isSphere = false;
+    floor.col.isStatic = false;
+    floor.col.rest = 1.0f;
+    w.objects.push_back(floor);
     startScrn(&w);
 
     // Создаем таблицу координат
@@ -1191,10 +1244,11 @@ int main()
     float fov = 90.0;
     float objIndex = 0;
     bool isRunning = true;
-    bool debug = false;
+    bool debug = true;
     bool enablePhysics = false;
-    bool enableTriCnt = true;
+    bool enableTriCnt = false;
     bool showMenu = false;
+    bool countTillFallen = false; // Доделать
 
     // Матрицы
     matrx4d scaleMatrix;
@@ -1206,7 +1260,7 @@ int main()
     // Кнопки главного меню
     vector<button> mainM = {
         // Кнопки
-        {BUTTON, 10, 3, .targetVar = &fov, "FOV", 60, 120, 5},
+        {BUTTON, 10, 3, .targetVar = &fov, "FOV", 50, 170, 5},
         {BUTTON, 10, 5, .targetVar = &w.atmDensity, "Atm. Density", 0, 50, 0.1},
         {BUTTON, 10, 7, .targetVar = &objIndex, "Object", 0, static_cast<int>(w.objects.size()), 1},
         {BUTTON, 10, 9, .targetVar = &magn, "Magnitude", 0, 500, 1},
@@ -1230,7 +1284,7 @@ int main()
         float aspect = static_cast<float>(height) / static_cast<float>(width);
         if(!showMenu) {
             clear(); // Очистка экрана
-            rotAngle += 0.02f;
+            rotAngle += 0.00f;
             rotX = createRotationX(rotAngle);
             rotY = createRotationY(rotAngle);
 	        rotZ = createRotationZ(rotAngle);
@@ -1252,9 +1306,9 @@ int main()
                 move(4, 0);
                 printw("Scale: %f\n", w.globalScale);
                 move(5, 0);
-                printw("Camera position: (x%.2f, y%.2f, z%.2f tilt%.2f) \n", cam.position.x, cam.position.y, cam.position.z, cam.direction.y);
+                printw("Camera position: (x%.2f, y%.2f, z%.2f tiltY %.2f, tiltX %.2f) \n", cam.position.x, cam.position.y, cam.position.z, cam.direction.y, cam.direction.x);
 	            move(6, 0);
-	            printw("Frame #%i", frames);
+	            printw("Frame #%i, Time: %.2f", frames, (frames * 0.0166));
 	            move(7, 0);
 	            printw("Obj. Pos. x %.2f, y %.2f, z %.2f", w.objects[objIndex].pos.x, w.objects[objIndex].pos.y, w.objects[objIndex].pos.z);
 	            move(8, 0);
@@ -1278,5 +1332,6 @@ int main()
     endwin();
     return 0;
 }
+
 
 
