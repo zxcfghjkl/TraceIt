@@ -13,7 +13,7 @@ sudo pacman -Syu ncurses
 sudo apt install ncurses
 ```
 ### On Windows:
-First, download MinGW from [MinGW Site](https://www.mingw-w64.org/).
+First, download MinGW from [MinGW Site](https://www.mingw-w64.org/). 
 Second, you will need to compile PDCurses from source (at [PDCurses](https://github.com/wmcbrine/PDCurses)) with MinGW in accordance with the instructions found on [README](https://github.com/wmcbrine/PDCurses/tree/master/wincon/README.md).
 
 ## Build:
