@@ -12,6 +12,10 @@ On Debian (based) run:
 ```bash
 sudo apt install ncurses
 ```
+On Windows:
+First, download MinGW from [MinGW Site](https://www.mingw-w64.org/).
+Second, you will need to compile PDCurses from source (at [PDCurses](https://github.com/wmcbrine/PDCurses)) with MinGW in accordance with the instructions found on [README](https://github.com/wmcbrine/PDCurses/tree/master/wincon/README.md).
+
 ## Build:
 Install clang and cmake (if not yet installed)
 On Arch Linux run:
@@ -35,4 +39,4 @@ Or for Windows:
 ```bash
 cmake .. && cmake --build
 ```
-Then, for the binary to run properly you'll need to put the .obj file in src/ (and PDCurses.dll on Windows) to build/
+Then, for the binary to run properly you'll need to put the .obj file in src/ to build/.
