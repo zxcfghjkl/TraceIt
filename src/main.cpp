@@ -127,10 +127,10 @@ camera cam = {
 // Функция, использующая алгоритм Брезенхема для рисования линий
 void drawLine(int x1, int y1, int x2, int y2) {
     // Проверка выхода за пределы экрана
-    if ((x1 < 0 && x2 < 0) || (x1 >= width && x2 >= width) ||
-        (y1 < 0 && y2 < 0) || (y1 >= height && y2 >= height)) {
-        return;
-    }
+    //if ((x1 < 0 && x2 < 0) || (x1 >= width && x2 >= width) ||
+        //(y1 < 0 && y2 < 0) || (y1 >= height && y2 >= height)) {
+        //return;
+    //}
 
     // Сам Брезенхем
     int dx = abs(x2 - x1);
@@ -290,8 +290,8 @@ matrx4d matMult(const matrx4d& a, const matrx4d& b) {
 // Нужно для определения видимости
 vec3d calculateNormal(const triangle &tri)
 {
-    vec3d edge1 = vecSubtract(tri.p[1], tri.p[0]);
-    vec3d edge2 = vecSubtract(tri.p[2], tri.p[0]);
+    vec3d edge1 = vecSubtract(tri.p[2], tri.p[1]);
+    vec3d edge2 = vecSubtract(tri.p[1], tri.p[0]);
     return normalize(cross(edge1, edge2));
 }
 
@@ -299,10 +299,9 @@ vec3d calculateNormal(const triangle &tri)
 bool isTriangleVisible(const triangle &tri, const camera& c)
 {
     vec3d normal = calculateNormal(tri);
-    vec3d viewDirection = vecSubtract(tri.p[0], c.position);
+    vec3d viewDirection = vecSubtract(c.position, tri.p[0]);
 
     // Нормализуем векторы
-    normal = normalize(normal);
     viewDirection = normalize(viewDirection);
 
     // Треугольник видим, если нормаль направлена ПРОТИВ вектора взгляда
@@ -469,6 +468,14 @@ matrx4d createProjMatrix(const float& aspect, const float& f)
         return projMatrix;
 }
 
+// Клиппинг
+mesh clipTri(const triangle &tri)
+{
+    mesh clipped;
+    if(abs(tri.p[0].y) - height > 0 && abs(tri.p[0].x) - width > 0 && abs(tri.p[1].y) - height > 0 && abs(tri.p[1].x) - width > 0 && abs(tri.p[2].y) - height > 0 && abs(tri.p[2].x) - width > 0) return clipped = {{tri}};
+    //else if()
+}
+
 // Рисуем сетку
 void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& viewMatrix, float globalScale,
  		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& c) {
@@ -477,11 +484,21 @@ void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& v
 
     // Проходимся по всем треугольникам в сетке
     for (const triangle& trian : inputMesh.triangles) {
+        //float y = trian.p[2].y - trian.p[1].y;
+        //float step = abs(y - trian.p[0].y) / 10;
+        //for(int i = 0; i < 10; i++)
+        //{
+           // while(abs(y) < trian.p[0].y)
+            //{
+            //drawLine(int x1, int y1, int x2, int y2);
+            //y+= step;
+           // }
+       //}
 
         // Проверяем видимость треугольника
-        //if (isTriangleVisible(trian, c)) {
+        if (isTriangleVisible(trian, c)) {
             drawTriangle(trian, projMatrix, viewMatrix, scaleMatrix, rotMatrix, transMatrix); // Отрисовка видимого треугольника
-        //}
+        }
     }
 }
 
@@ -509,13 +526,8 @@ string consoleIn() {
     return input;
 }
 
-mesh createCubeMesh(const float &scale) {
+mesh createRectMesh(const float &sX, const float &sY, const float &sZ) {
     mesh cubeMesh;
-
-    // Масштабирование вершины
-    auto scaleVertex = [scale](vec3d v) -> vec3d {
-        return {v.x * scale, v.y * scale, v.z * scale};
-    };
 
     // Вершины куба
     vec3d vertices[8] = {
@@ -532,38 +544,38 @@ mesh createCubeMesh(const float &scale) {
     // Определяем треугольники для каждой грани куба
     triangle cubeTriangles[12] = {
         // Задняя грань
-        {vertices[0], vertices[1], vertices[2]},
-        {vertices[2], vertices[3], vertices[0]},
+        {multVecScal(vertices[0], (sZ / 2)), multVecScal(vertices[1], (sZ / 2)), multVecScal(vertices[2], (sZ / 2))},
+        {multVecScal(vertices[2], (sZ / 2)), multVecScal(vertices[3], (sZ / 2)), multVecScal(vertices[0], (sZ / 2))},
 
         // Передняя грань
-        {vertices[4], vertices[5], vertices[6]},
-        {vertices[6], vertices[7], vertices[4]},
+        {multVecScal(vertices[4], (sZ / 2)), multVecScal(vertices[5], (sZ / 2)), multVecScal(vertices[6], (sZ / 2))},
+        {multVecScal(vertices[6], (sZ / 2)), multVecScal(vertices[7], (sZ / 2)), multVecScal(vertices[4], (sZ / 2))},
 
         // Левая грань
-        {vertices[0], vertices[3], vertices[7]},
-        {vertices[7], vertices[4], vertices[0]},
+        {multVecScal(vertices[0], (sX / 2)), multVecScal(vertices[3], (sX / 2)), multVecScal(vertices[7], (sX / 2))},
+        {multVecScal(vertices[7], (sX / 2)), multVecScal(vertices[4], (sX / 2)), multVecScal(vertices[0], (sX / 2))},
 
         // Правая грань
-        {vertices[1], vertices[5], vertices[6]},
-        {vertices[6], vertices[2], vertices[1]},
+        {multVecScal(vertices[1], (sX / 2)), multVecScal(vertices[5], (sX / 2)), multVecScal(vertices[6], (sX / 2))},
+        {multVecScal(vertices[6], (sX / 2)), multVecScal(vertices[2], (sX / 2)), multVecScal(vertices[1], (sX / 2))},
 
         // Нижняя грань
-        {vertices[0], vertices[1], vertices[5]},
-        {vertices[5], vertices[4], vertices[0]},
+        {multVecScal(vertices[0], (sY / 2)), multVecScal(vertices[1], (sY / 2)), multVecScal(vertices[5], (sY / 2))},
+        {multVecScal(vertices[5], (sY / 2)), multVecScal(vertices[4], (sY / 2)), multVecScal(vertices[0], (sY / 2))},
 
         // Верхняя грань
-        {vertices[2], vertices[6], vertices[7]},
-        {vertices[7], vertices[3], vertices[2]}
+        {multVecScal(vertices[2], (sY / 2)), multVecScal(vertices[6], (sY / 2)), multVecScal(vertices[7], (sY / 2))},
+        {multVecScal(vertices[7], (sY / 2)), multVecScal(vertices[3], (sY / 2)), multVecScal(vertices[2], (sY / 2))}
     };
 
     // Применяем масштаб
-    for(auto& tri : cubeTriangles) {
-        for(auto& v : tri.p) {
-            v.x *= scale;
-            v.y *= scale;
-            v.z *= scale;
-        }
-    }
+    //for(auto& tri : cubeTriangles) {
+      //  for(auto& v : tri.p) {
+        //    v.x *= scale;
+          //  v.y *= scale;
+            //v.z *= scale;
+        //}
+    //}
 
     // Добавляем треугольники в mesh
     for (const auto& tri : cubeTriangles) { // Для каждого треугольника в эррее "cubeTriangles"
@@ -1143,7 +1155,7 @@ while(!start) {
     obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
  	obj.force = {0, 0, 0};
  	obj.area = 2.0f;
-	obj.model = createCubeMesh(2.0f); //loadFromObjectFile("teapot.obj");
+	obj.model = createRectMesh(2.0f, 2.0f, 2.0f); //loadFromObjectFile("teapot.obj");
 	// Инициализация коллайдера
     obj.col.center = obj.pos;
     obj.col.size = {2, 2, 2};
@@ -1221,13 +1233,13 @@ int main()
     matrx4d tmp = createTranslationMatrix(0, -30, 0);
 
     // Создание мира
-    mesh m = createCubeMesh(200.0f);
+    mesh m = createRectMesh(200, 10, 200);
     world w;
     object floor = {{0, -30, 0}, {0, 0, 0}, {0, 0, 0}, 1000.0f, m, tmp, 10.0f, 4.0f, true};
     floor.col.center = floor.pos;
     floor.col.size = {200, 10, 200};
     floor.col.isSphere = false;
-    floor.col.isStatic = false;
+    floor.col.isStatic = true;
     floor.col.rest = 1.0f;
     w.objects.push_back(floor);
     startScrn(&w);
@@ -1235,7 +1247,7 @@ int main()
     // Создаем таблицу координат
     ofstream coords;
 
-    // Глобальные переменные
+    // Важные переменные
     w.globalScale = 1.0f;
     int frames = 0;
     int currBtn = 0;
@@ -1248,6 +1260,7 @@ int main()
     bool enablePhysics = false;
     bool enableTriCnt = false;
     bool showMenu = false;
+    bool disableFilling = true;
     bool countTillFallen = false; // Доделать
 
     // Матрицы
@@ -1284,13 +1297,14 @@ int main()
         float aspect = static_cast<float>(height) / static_cast<float>(width);
         if(!showMenu) {
             clear(); // Очистка экрана
-            rotAngle += 0.00f;
+            rotAngle += 0.01f;
             rotX = createRotationX(rotAngle);
             rotY = createRotationY(rotAngle);
 	        rotZ = createRotationZ(rotAngle);
 
-            rotMatrix = matMult(rotX, rotY);
-	        rotMatrix = matMult(rotMatrix, rotZ); // Комбинирование поворотов
+            //rotMatrix = matMult(rotX, rotY);
+            rotMatrix = rotX;
+	        //rotMatrix = matMult(rotMatrix, rotZ); // Комбинирование поворотов
             // Создание матрицы проекции
             w.projMatrix = createProjMatrix(aspect, fov);
             // Создание матрицы вида для камеры
