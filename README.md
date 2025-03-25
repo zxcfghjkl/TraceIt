@@ -4,25 +4,25 @@ A simple console 3d physics simulator that I made with C++, should be compatible
 # Dependencies
 ## Runtime:
 Install ncurses (if not yet installed)
-On Arch Linux run:
+### On Arch Linux run:
 ```bash
 sudo pacman -Syu ncurses
 ```
-On Debian (based) run:
+### On Debian (based) run:
 ```bash
 sudo apt install ncurses
 ```
-On Windows:
+### On Windows:
 First, download MinGW from [MinGW Site](https://www.mingw-w64.org/).
 Second, you will need to compile PDCurses from source (at [PDCurses](https://github.com/wmcbrine/PDCurses)) with MinGW in accordance with the instructions found on [README](https://github.com/wmcbrine/PDCurses/tree/master/wincon/README.md).
 
 ## Build:
 Install clang and cmake (if not yet installed)
-On Arch Linux run:
+### On Arch Linux run:
 ```bash
 sudo pacman -Syu cmake
 ```
-On Debian (based) run:
+### On Debian (based) run:
 ```bash
 sudo apt install cmake
 ```
