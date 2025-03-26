@@ -1,5 +1,15 @@
 # TraceIt
-A simple console 3d physics simulator that I made with C++, should be compatible with any unix-like system (only tested on Linux, Android) and Windows. Heavilly inspired by OneLoneCoder's ConsoleGameEngine
+A simple console 3d physics simulator (basicaly, a game engine) that I made with C++, should be compatible with any unix-like system (only tested on Linux, Android) and Windows. Heavilly inspired by OneLoneCoder's ConsoleGameEngine.
+## Currently supports:
+### Graphics:
+- Rendering lines and empty polygons
+- Rendering simple .obj models (meshes)
+- Basic culling (more will be added soon)
+- Rotation, camera controls, etc.
+### Physics
+- Creation of "planets" and projectiles with custom parameters (eg. velocity, cross-sectional area)
+- Gravity and air drag
+- Basic collisions
 
 # Dependencies
 ## Runtime:
