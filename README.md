@@ -49,4 +49,4 @@ Or for Windows:
 ```bash
 cmake .. && cmake --build
 ```
-Then, for the binary to run properly you'll need to put the .obj file in src/ to build/.
+Then, for the binary to run properly you'll need to put the .obj files in src/ to build/.
