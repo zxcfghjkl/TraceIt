@@ -14,15 +14,14 @@
 #ifdef _WIN32 // (Windows)
 // Аналог usleep для Windows
 	#include <windows.h>
-	#define usleep(ms) Sleep((ms) / 1000) // В Windows миллисекунды
-#else // (MacOS / Linux / BSD / Android, и т. п.)
-// Для usleep()
+	#include <curses.h>
+	#define usleep(us) Sleep((us) / 1000) // В Windows миллисекунды
+    #define getmouse(event) nc_getmouse(event)  // В PDCurses называется так
+#else  // (MacOS / Linux / BSD / Android, и т. п.)
+    // Для NCurses
+    #include <ncurses.h>
+    // Для usleep()
 	#include <unistd.h>
-#endif
-#ifdef _WIN32
-// Вывод графики
-#else
-    #include <ncurses.h> // Для NCurses
 #endif
 
 using namespace std;
@@ -455,15 +454,15 @@ matrx4d createTranslationMatrix(const float& transX, const float& transY, const 
 // Функция для создания матрицы трансляции проекции
 matrx4d createProjMatrix(const float& aspect, const float& f)
 {
-        const float near = 0.1f;
-        const float far = 100.0f;
+        const float zNear = 0.1f;
+        const float zFar = 100.0f;
         const float fov = f * M_PI / 180.0f;
         const float fovRad = 1.0f / tan(fov * 0.5f);
         matrx4d projMatrix = {{ // 2.519 - соотношение сторон символа
           {fovRad * aspect * 2.519f, 0.0f, 0.0f, 0.0f},
           {0.0f,            fovRad,    0.0f,                 0.0f},
-          {0.0f,            0.0f,      (far + near)/(far - near), 1.0f},
-          {0.0f,            0.0f,      (-2.0f * far * near)/(far - near), 0.0f}
+          {0.0f,            0.0f,      (zFar + zNear)/(zFar - zNear), 1.0f},
+          {0.0f,            0.0f,      (-2.0f * zFar * zNear)/(zFar - zNear), 0.0f}
           }};
 
         return projMatrix;
