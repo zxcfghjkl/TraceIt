@@ -45,7 +45,7 @@ Initialize build and compile TraceIt:
 ```bash
 cmake .. && make
 ```
-Or for Windows:
+Or for Windows (tested with MinGW):
 ```bash
 cmake .. && cmake --build
 ```
