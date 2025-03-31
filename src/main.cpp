@@ -14,9 +14,11 @@
 #ifdef _WIN32 // (Windows)
 // Аналог usleep для Windows
 	#include <windows.h>
-	#include <curses.h>
+	#include <pdcurses.h>
+	//#include <curses.h>
 	#define usleep(us) Sleep((us) / 1000) // В Windows миллисекунды
     #define getmouse(event) nc_getmouse(event)  // В PDCurses называется так
+    #define endwin() endwin_x64_4400
 #else  // (MacOS / Linux / BSD / Android, и т. п.)
     // Для NCurses
     #include <ncurses.h>
@@ -127,7 +129,7 @@ camera cam = { {},
 };
 
 // Функция, использующая алгоритм Брезенхема для рисования линий
-void drawLine(int x1, int y1, int x2, int y2) {
+void drawLine(int x1, int y1, int x2, int y2) { //, WINDOW* win
     // Проверка выхода за пределы экрана
     //if ((x1 < 0 && x2 < 0) || (x1 >= width && x2 >= width) ||
         //(y1 < 0 && y2 < 0) || (y1 >= height && y2 >= height)) {
@@ -144,7 +146,7 @@ void drawLine(int x1, int y1, int x2, int y2) {
     while (true) {
         // Проверка границ перед рисованием
         if (x1 >= 0 && x1 < width && y1 >= 0 && y1 < height) {
-            mvaddch(y1, x1, '*');
+            mvaddch(y1, x1, '*'); // mvwaddch(win, y1, x1, '*');
         }
 
         if (x1 == x2 && y1 == y2) break;
@@ -634,6 +636,22 @@ void resolveCollisions(world& w) {
             object& a = w.objects[i];
             object& b = w.objects[j];
 
+            // Гравитация
+            // Вычисляем вектор от a к b
+            //vec3d deltaPos = vecSubtract(b.pos, a.pos);
+            //float distanceSq = dot(deltaPos, deltaPos);
+
+            // Сила по Ньютону
+            //float gravForce = 6.6743e-11f * (a.mass * b.mass) / distanceSq;
+
+            // Направление силы притяжения (к b)
+            //vec3d forceDir = normalize(deltaPos);
+
+            // Итоговый вектор силы
+            //vec3d grav = multVecScal(forceDir, gravForce);
+            //b.force = multVecScal(grav, -1.0f);
+            //a.force = grav;
+
             if(a.col.isStatic && b.col.isStatic) continue;
             if(a.mass <= 0 || b.mass <= 0) continue;
 
@@ -650,7 +668,7 @@ void resolveCollisions(world& w) {
 
             if(collision) {
                 // Относительная скорость
-                vec3d relVelocity = vecSubtract(b.vel, a.vel);
+                vec3d relVelocity = vecSubtract(a.vel, b.vel); // b, a
                 float velAlongNormal = dot(relVelocity, normal);
 
                 if(velAlongNormal > 0) continue;
@@ -690,12 +708,13 @@ void resolveCollisions(world& w) {
 void updatePhysics(world& w, ofstream& coords) {
     const vec3d gravity = {0, -9.8, 0}; // Гравитация должна быть отрицательной по Y
     float dt = 0.01666f;
+    int so = 1;
 
-    // Открываем файл один раз для всех объектов
+    // Открываем файл один раз
     static bool headerWritten = false;
     coords.open("Координаты.txt", ios::app); // Режим добавления
 
-    // Записываем заголовок только один раз
+    // Записываем заголовок
     if (!headerWritten) {
         coords << "Координаты в формате (x, y, z, время):\n";
         headerWritten = true;
@@ -719,7 +738,9 @@ void updatePhysics(world& w, ofstream& coords) {
 
             // Суммируем все силы (Fd + Fgravity + Fother)
             vec3d totalForce = vecAdd(Fd, multVecScal(gravity, obj.mass));
+            //vec3d totalForce = vecAdd(Fd, gravity);
             totalForce = vecAdd(totalForce, obj.force); // Добавляем другие силы
+            //totalForce = vecAdd(totalForce, grav); // И гравитацию
 
             // Интегрируем
             vec3d acceleration = divVecScal(totalForce, obj.mass);
@@ -741,8 +762,6 @@ void updatePhysics(world& w, ofstream& coords) {
                 obj.trajWritten = true;
             }
 
-            coords.close(); // Закрываем файл после обработки всех объектов
-
             // Ограничиваем длину траектории
             if(obj.trajectory.size() > obj.maxTrajectoryPoints) {
                 obj.trajectory.erase(obj.trajectory.begin());
@@ -752,6 +771,7 @@ void updatePhysics(world& w, ofstream& coords) {
             obj.force = {0, 0, 0}; // Сброс внешних сил
         }
     }
+    coords.close(); // Закрываем файл после обработки всех объектов
     // Проверяем и разрешаем коллизии
     resolveCollisions(w);
 }
@@ -885,7 +905,7 @@ bool &showMenu, WINDOW* &win, int &currBtn)
             cam.direction.z = oldDirX * sin(-angleY) + cam.direction.z * cos(-angleY);
 
             // Наклон камеры по вертикали (мышь Y)
-            float angleX = deltaY * 0.01f;
+            float angleX = deltaY  * 0.025f;
             cam.direction.y -= angleX;
         }
         prevMouseX = event.x;
@@ -904,9 +924,9 @@ bool &showMenu, WINDOW* &win, int &currBtn)
         else if (ch == '-')
             w.globalScale -= 0.1f * magn;
         else if (ch == 'w')
-            cam.physics.force = vecAdd(cam.physics.force, multVecScal(normalize(cam.direction), magn)); //cam.position.z += 0.1f * magn;
+            cam.position = vecAdd(cam.position, multVecScal(normalize(cam.direction), magn)); //cam.position.z += 0.1f * magn;
         else if (ch == 's')
-            cam.physics.force = vecSubtract(cam.physics.force, multVecScal(normalize(cam.direction), magn));
+            cam.position = vecSubtract(cam.position, multVecScal(normalize(cam.direction), magn));
         else if (ch == 'z')
             cam.position.y -= 0.1f * magn;
         else if (ch == ' ')
@@ -921,8 +941,12 @@ bool &showMenu, WINDOW* &win, int &currBtn)
             magn -= 1.0f;
         else if (ch == 'm') // Главное меню
         {
-        showMenu = !showMenu;
-        if (showMenu) {
+            showMenu = true;
+            while(showMenu) {
+                clear();
+                refresh();
+                getmaxyx(stdscr, height, width);
+                // if(!isRunning) showMenu = false; // Когда перенесу переменные в хедер
                 win = createWindow(buttons, 25, 50, -1, -1,
                                   COLOR_BLUE, COLOR_BLACK,
                                   "Main Menu", true);
@@ -930,74 +954,72 @@ bool &showMenu, WINDOW* &win, int &currBtn)
                 for (size_t i = 0; i < buttons.size(); ++i) {
                     updateButton(win, buttons[i], i == currBtn);
                 }
-            } else {
-                //showMenu = false;
-                delwin(win);
-                win = nullptr;
-                clear();
-                refresh();
-            }
-        }
 
-        if (showMenu && win) {
-            ch = wgetch(win);
+                if (win) {
+                    ch = wgetch(win);
 
-            switch (ch) {
-                case KEY_UP:
-                    if (currBtn > 0) {
-                        currBtn--;
-                    } else currBtn = buttons.size() - 1;
-                    break;
-                case KEY_DOWN:
-                    if (currBtn < buttons.size() - 1) {
-                        currBtn++;
-                    } else currBtn = 0;
-                    break;
-                case KEY_LEFT:
-                    if(buttons[currBtn].type == BUTTON) {
-                        *buttons[currBtn].targetVar -= buttons[currBtn].step;
-                    }
-                    break;
-                case KEY_RIGHT:
-                    if(buttons[currBtn].type == BUTTON) {
-                        *buttons[currBtn].targetVar += buttons[currBtn].step;
-                    }
-                    break;
-                case KEY_ENTER: // Ввод для переключения чекбокса
-                    if(buttons[currBtn].type == CHECKBOX) {
-                        *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
-                    }
-                case '\n': // Ввод для переключения чекбокса
-                    if(buttons[currBtn].type == CHECKBOX) {
-                        *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
-                    }
-                    break;
-                case 'q':
-                    showMenu = false;
-                    delwin(win);
-                    win = nullptr;
-                    clear();
-                    refresh();
-                    break;
-            }
+                    switch (ch) {
+                        case KEY_UP:
+                            if (currBtn > 0) {
+                                currBtn--;
+                            } else currBtn = buttons.size() - 1;
+                            break;
+                        case KEY_DOWN:
+                            if (currBtn < buttons.size() - 1) {
+                                currBtn++;
+                            } else currBtn = 0;
+                            break;
+                        case KEY_LEFT:
+                            if(buttons[currBtn].type == BUTTON) {
+                                *buttons[currBtn].targetVar -= buttons[currBtn].step;
+                            }
+                            break;
+                        case KEY_RIGHT:
+                            if(buttons[currBtn].type == BUTTON) {
+                                *buttons[currBtn].targetVar += buttons[currBtn].step;
+                            }
+                            break;
+                        case KEY_ENTER: // Ввод для переключения чекбокса
+                            if(buttons[currBtn].type == CHECKBOX) {
+                                *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
+                            }
+                        case '\n': // Ввод для переключения чекбокса
+                            if(buttons[currBtn].type == CHECKBOX) {
+                                *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
+                            }
+                            break;
+                        case 'q':
+                            showMenu = false;
+                            delwin(win);
+                            win = nullptr;
+                            clear();
+                            refresh();
+                            break;
+                }
 
-            // Проверка границ значений (только для BUTTON)
-            if(buttons[currBtn].type == BUTTON) {
-            button& btn = buttons[currBtn];
-            if (*btn.targetVar < btn.minVal) *btn.targetVar = btn.minVal;
-            if (*btn.targetVar > btn.maxVal) *btn.targetVar = btn.maxVal;
-            }
+                // Проверка границ значений (только для BUTTON)
+                if(buttons[currBtn].type == BUTTON) {
+                button& btn = buttons[currBtn];
+                if (*btn.targetVar < btn.minVal) *btn.targetVar = btn.minVal;
+                if (*btn.targetVar > btn.maxVal) *btn.targetVar = btn.maxVal;
+                }
 
-            // Обновление отображения
-            for (size_t i = 0; i < buttons.size(); ++i) {
-                updateButton(win, buttons[i], i == currBtn);
+                // Обновление отображения
+                for (size_t i = 0; i < buttons.size(); ++i) {
+                    updateButton(win, buttons[i], i == currBtn);
+                }
             }
-        }
             // Защита от слишком маленького масштаба
-        if (w.globalScale < 0.01f)
-            w.globalScale = 0.01f;
-	    if(magn < 0)
-	        magn = 0.0f;
+            if (w.globalScale < 0.01f)
+                w.globalScale = 0.01f;
+	        if(magn < 0)
+	            magn = 0.0f;
+        }
+    delwin(win);
+    win = nullptr;
+    clear();
+    refresh();
+    }
     }
 }
 
@@ -1051,11 +1073,13 @@ float magn;
 float elev;
 float azim;
 vector<button> buttons  = {
-{CHECKBOX, static_cast<int>(LINES /  2) - 8, 10, .targetBool = &nObj, "Create New Object"}};
-button cw = {CHECKBOX, static_cast<int>(LINES / 2) - 8, 12, .targetBool = &start, "Create New World"};
+{CHECKBOX, 4, 10, .targetBool = &nObj, "Create New Object"}};
+button cw = {CHECKBOX, 4, 12, .targetBool = &start, "Create New World"};
 
 while(!start) {
       getmaxyx(stdscr, height, width);
+      clear();
+      refresh();
 	  if(w->objects.size() > 1  && !put)
 	  {
 	    buttons.push_back(cw);
@@ -1063,13 +1087,20 @@ while(!start) {
 	  }
 	  WINDOW* win = createWindow(buttons, height, width / 2, -1, 0,
                                   COLOR_WHITE, COLOR_BLACK,
-                                  "Welcome to TraceIt!"
+                                  R"(
+  _______                 _____ _
+ |__   __|               |_   _| |
+    | |_ __ __ _  ___ ___  | | | |_
+    | | '__/ _` |/ __/ _ \ | | | __|
+    | | | | (_| | (_|  __/_| |_| |_
+    |_|_|  \__,_|\___\___|_____|\__|
+)"
                                   , true);
                 // Первоначальная отрисовка
                 for (size_t i = 0; i < buttons.size(); ++i) {
                     updateButton(win, buttons[i], i == currBtn);
                 }
-                mvwprintw(win, 10, static_cast<int>(LINES /  2) + 13, " (In Total:  %i)", static_cast<int>(w->objects.size()));
+                mvwprintw(win, 10, 25, " (In Total:  %i)", static_cast<int>(w->objects.size()));
 
         if (win) {
             ch = wgetch(win);
@@ -1122,7 +1153,7 @@ while(!start) {
                 obj.Cd = stof(consoleIn());
         } catch (const std::invalid_argument& e) {
                 // Обработка ошибки
-                obj.Cd = 0.5f;
+                obj.Cd = 0.47f;
                 printw("Not a number, defaulting to: %.2f", obj.Cd);
          }
 	printw("\nVelocity in spherical, elevation (0 - 90): \n");
@@ -1177,11 +1208,11 @@ while(!start) {
            }
     obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
  	obj.force = {0, 0, 0};
- 	obj.area = 2.0f;
+ 	obj.area = 3.14;
 	obj.model = loadFromObjectFile("sphere.obj");
 	// Инициализация коллайдера
     obj.col.center = obj.pos;
-    obj.col.size = {2, 2, 2};
+    obj.col.size = {1, 1, 1};
     obj.col.isSphere = false;
     obj.col.isStatic = false;
     obj.col.rest = 0.5;
@@ -1276,20 +1307,24 @@ int main()
     //cam.physics.trajWritten = true;
     cam.physics.col = {cam.position, {0.4f, 1.75f, 0.25}, 0.0f, false, false, 0.1};
 
-    matrx4d floPos = createTranslationMatrix(0, -30, 0);
+    matrx4d floPos = createTranslationMatrix(0, -20, 0);
 
     // Создание мира
-    mesh m = createRectMesh(2000, 5, 2000);
+    mesh e = createRectMesh(10000, 5, 10000); //loadFromObjectFile("sphere.obj");
+    //for(auto tri : e.triangles)
+    //{
+       // tri = scaleTri(tri, 5);
+    //}
     world w;
     w.globalScale = 1.0f;
-    object floor = {{0, -30, 0}, {0, 0, 0}, {0, 0, 0}, 1000.0f, m, floPos, 10.0f, 4.0f, true};
-    floor.col.center = floor.pos;
-    floor.col.size = {2000, 5, 2000};
-    floor.col.isSphere = false;
-    floor.col.isStatic = true;
-    floor.col.rest = 1.0f;
-    w.objects.push_back(floor);
-    w.objects.push_back(cam.physics);
+    object earth = {{0, -20, 0}, {0, 0, 0}, {0, 0, 0}, 1000, e, floPos, 1000.0f, 1000.0f, true}; /*5.9742e+24f*/
+    earth.col.center = earth.pos;
+    earth.col.size = {10000, 5, 10000};
+    earth.col.isSphere = false;
+    earth.col.isStatic = true;
+    earth.col.rest = 1.0f;
+    w.objects.push_back(earth);
+    //w.objects.push_back(cam.physics);
     startScrn(&w);
 
     // Создаем таблицу координат
@@ -1307,7 +1342,7 @@ int main()
         // Кнопки
         {BUTTON, 10, 3, .targetVar = &fov, "FOV", 50, 170, 5},
         {BUTTON, 10, 5, .targetVar = &w.atmDensity, "Atm. Density", 0, 50, 0.1},
-        {BUTTON, 10, 7, .targetVar = &objIndex, "Object", 0, static_cast<int>(w.objects.size()), 1},
+        {BUTTON, 10, 7, .targetVar = &objIndex, "Object", 0, static_cast<int>(w.objects.size()) - 1, 1},
         {BUTTON, 10, 9, .targetVar = &magn, "Magnitude", 0, 500, 1},
         {BUTTON, 10, 11, .targetVar = &w.objects[objIndex].Cd, "Obj. Cd", 0, 50, 1},
 
@@ -1346,7 +1381,7 @@ int main()
 
 	        if(enablePhysics) updatePhysics(w, coords);
 	        drawWorld(w, rotMatrix, cam);
-	        updateCam(cam);
+	        //updateCam(cam);
 	        if(enableTriCnt) mvprintw(height - 3, 0, "All Triangles: %.i", cntTris(w));
 
             if(objView) {
@@ -1366,6 +1401,8 @@ int main()
 	            move(8, 0);
 	            printw("Obj. Vel. x %.2f, y %.2f, z %.2f", w.objects[objIndex].vel.x, w.objects[objIndex].vel.y, w.objects[objIndex].vel.z);
 	            move(9, 0);
+	            printw("Object Mass: %.2f", w.objects[objIndex].mass);
+	            move(10, 0);
 	            printw("Terminal Dimensions: Columns %i, Rows %i,", width, height);
         }
     }
