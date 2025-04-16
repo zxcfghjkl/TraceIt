@@ -1140,10 +1140,10 @@ void createWorldUI(world& w) {
 
     vector<button> buttons = {
         {BUTTON, 10, 5, .targetVar = &w.globalScale, "World Scale", 1, 100, 1},
-        {BUTTON, 10, 7, .targetVar = &w.g, "Gravity", 1, 20, 1},
+        {BUTTON, 10, 7, .targetVar = &w.g, "Gravity", 1, 20, 0.1},
         {CHECKBOX, 10, 9, .targetBool = &enablePhysics, "Enable Physics"},
-        {BUTTON, 10, 11, .targetVar = &w.atmDensity, "Atm. Density", 0, 2, 0.1},
-        {CHECKBOX, 10, 13, .targetBool = &exit, "Done"},
+        {BUTTON, 10, 11, .targetVar = &w.atmDensity, "Atm. Density", 0, 30, 0.1},
+        {CHECKBOX, 10, 24, .targetBool = &exit, "Done"},
     };
 
     WINDOW* win = createWindow(buttons, 25, 50, -1, -1, COLOR_CYAN, COLOR_BLACK, "World Settings", true);
@@ -1288,7 +1288,7 @@ void createObjectUI(world &w) {
         newObj.vel = toSpherical(elev, azim, mgntd);
         newObj.transform = createTranslationMatrix(newObj.pos.x, newObj.pos.y, newObj.pos.z);
  	    newObj.area = M_PI * size * size;
- 	    newObj.model = loadFromObjectFile("arrow.obj");
+ 	    newObj.model = loadFromObjectFile("sphere.obj");
 	    for(auto tri : newObj.model.triangles)
         {
             tri = scaleTri(tri, size);
