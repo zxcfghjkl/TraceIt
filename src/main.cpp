@@ -28,7 +28,24 @@
 
 using namespace std;
 
+// Важные переменные
 int height, width;
+int frames = 0;
+int currBtn = 0;
+float rotAngle = 0.0f;
+float magn = 1.0f;
+float fov = 90.0;
+float objIndex = 0;
+bool debug = true;
+bool enablePhysics = false;
+//bool enableMiniMap = true;
+bool enableTriCnt = false;
+bool showMenu = false;
+bool disableFilling = true;
+bool objView = false;
+bool countTillFallen = false; // Доделать
+bool isRunning = true;
+bool creatdObj = false;
 
 // Вектор с 3 элементами
 struct vec3d
@@ -42,12 +59,14 @@ struct matrx4d
     float m[4][4]; // Двумерный массив для удобства работы
 };
 
-//enum vertDir = {clockwise, antiClockwise};
+// Порядок вершин
+enum vertDir { CLOCKWISE, ANTICLOCKWISE };
+
 // Треугольник
 struct triangle
 {
     vec3d p[3];
-    // vertDir dir = clockwise;
+    vertDir dir;
 };
 
 // Сетка
@@ -70,6 +89,7 @@ struct collider {
 struct object
 {
     vec3d pos;  // Позиция обьекта
+    //vec3d rot;  // Поворот по 3 осям
     vec3d vel; // Скорость
     vec3d force; // Сила
     float mass; // Масса
@@ -128,8 +148,15 @@ camera cam = { {},
     {0.0f, -1.0f, 0.0f}    // Вектор "вверх" (по оси Y)
 };
 
+// Камера миникарты
+camera mCam = { {},
+    {0.0f, -5.0f, -2.0f},  // Позиция камеры
+    {0.0f, 0.0f, 1.0f},   // Направление взгляда (смотрит по оси Z)
+    {0.0f, -1.0f, 0.0f}    // Вектор "вверх" (по оси Y)
+};
+
 // Функция, использующая алгоритм Брезенхема для рисования линий
-void drawLine(int x1, int y1, int x2, int y2) { //, WINDOW* win
+void drawLine(int x1, int y1, int x2, int y2, WINDOW* win) { //, WINDOW* win
     // Проверка выхода за пределы экрана
     //if ((x1 < 0 && x2 < 0) || (x1 >= width && x2 >= width) ||
         //(y1 < 0 && y2 < 0) || (y1 >= height && y2 >= height)) {
@@ -145,9 +172,9 @@ void drawLine(int x1, int y1, int x2, int y2) { //, WINDOW* win
 
     while (true) {
         // Проверка границ перед рисованием
-        if (x1 >= 0 && x1 < width && y1 >= 0 && y1 < height) {
-            mvaddch(y1, x1, '*'); // mvwaddch(win, y1, x1, '*');
-        }
+        //if (x1 >= 0 && x1 < width && y1 >= 0 && y1 < height) {
+            mvwaddch(win, y1, x1, '*');
+        //}
 
         if (x1 == x2 && y1 == y2) break;
 
@@ -162,48 +189,6 @@ void drawLine(int x1, int y1, int x2, int y2) { //, WINDOW* win
         }
     }
 }
-
-//  OneLoneCoder'a
-mesh loadFromObjectFile(string sFilename)
-	{
-	    mesh outputMesh;
-
-        // Открываем файл
-		ifstream f(sFilename);
-
-		// Локальный кеш вершин
-		vector<vec3d> verts;
-
-        // Пока не закончился
-		while (!f.eof())
-		{
-			char line[128];
-			f.getline(line, 128);
-
-			strstream s;
-			s << line;
-
-			char junk;
-
-            // Если 1 символ "v" - вершина
-			if (line[0] == 'v')
-			{
-				vec3d v;
-				s >> junk >> v.x >> v.y >> v.z;
-				verts.push_back(v);
-			}
-
-            // Это -
-			if (line[0] == 'f')
-			{
-				int f[3];
-				s >> junk >> f[0] >> f[1] >> f[2];
-				outputMesh.triangles.push_back({ verts[f[0] - 1], verts[f[1] - 1], verts[f[2] - 1] });
-			}
-		}
-
-		return outputMesh;
-	}
 
     // Произведения векторов
 // Скалярное
@@ -310,6 +295,60 @@ bool isTriangleVisible(const triangle &tri, const camera& c)
     return dot(normal, viewDirection) < 0.0f;
 }
 
+//  OneLoneCoder'a
+mesh loadFromObjectFile(string sFilename)
+	{
+	    mesh outputMesh;
+
+        // Открываем файл
+		ifstream f(sFilename);
+
+		// Локальный кеш вершин
+		vector<vec3d> verts;
+
+        // Пока не закончился
+		while (!f.eof())
+		{
+			char line[128];
+			f.getline(line, 128);
+
+			strstream s;
+			s << line;
+
+			char junk;
+
+            // Если 1 символ "v" - вершина
+			if (line[0] == 'v')
+			{
+				vec3d v;
+				s >> junk >> v.x >> v.y >> v.z;
+				verts.push_back(v);
+			}
+
+            // Это -
+			if (line[0] == 'f')
+			{
+				int f[3];
+				s >> junk >> f[0] >> f[1] >> f[2];
+				// Создаем треугольник с правильным порядком
+                triangle tri;
+                tri.p[0] = verts[f[0] - 1];
+                tri.p[1] = verts[f[1] - 1];
+                tri.p[2] = verts[f[2] - 1];
+
+                // Проверяем и корректируем направление
+                if (dot(calculateNormal(tri), vec3d{0,0,1}) < 0) {
+                // Меняем порядок вершин
+                swap(tri.p[1], tri.p[2]);
+                tri.dir = ANTICLOCKWISE;
+			}
+			outputMesh.triangles.push_back({ verts[f[0] - 1], verts[f[1] - 1], verts[f[2] - 1] });
+		}
+
+    }
+		return outputMesh;
+}
+
 // Функция умножения матрицы на вектор
 vec3d matVecMult(const matrx4d &mat, const vec3d &vec)
 {
@@ -334,7 +373,7 @@ vec3d scaleToScreen(const vec3d &point)
 
 // Функция для рисования треугольника с учетом всех преобразований
 void drawTriangle(triangle tri, const matrx4d& projMatrix, const matrx4d& viewMatrix,
-                 const matrx4d& scaleMatrix, const matrx4d& rotMatrix, const matrx4d& transMatrix) {
+                 const matrx4d& scaleMatrix, const matrx4d& rotMatrix, const matrx4d& transMatrix, WINDOW* win) {
     bool allOutside = true;
     for (int i = 0; i < 3; i++) {
         // Масштаб > Поворот > Перемещение > Вид > Проекция
@@ -354,9 +393,9 @@ void drawTriangle(triangle tri, const matrx4d& projMatrix, const matrx4d& viewMa
 
     if(allOutside) return;
 
-    drawLine(tri.p[0].x, tri.p[0].y, tri.p[1].x, tri.p[1].y);
-    drawLine(tri.p[1].x, tri.p[1].y, tri.p[2].x, tri.p[2].y);
-    drawLine(tri.p[2].x, tri.p[2].y, tri.p[0].x, tri.p[0].y);
+    drawLine(tri.p[0].x, tri.p[0].y, tri.p[1].x, tri.p[1].y, win);
+    drawLine(tri.p[1].x, tri.p[1].y, tri.p[2].x, tri.p[2].y, win);
+    drawLine(tri.p[2].x, tri.p[2].y, tri.p[0].x, tri.p[0].y, win);
 
     //move(10, 0);
 
@@ -480,7 +519,7 @@ mesh clipTri(const triangle &tri)
 
 // Рисуем сетку
 void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& viewMatrix, float globalScale,
- 		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& c) {
+ 		const matrx4d& rotMatrix, const matrx4d& transMatrix, const camera& c, WINDOW* win) {
     // Создаём матрицу масштаба
     matrx4d scaleMatrix = createScaleMatrix(globalScale, globalScale, globalScale);
 
@@ -499,7 +538,7 @@ void drawMesh(const mesh& inputMesh, const matrx4d& projMatrix, const matrx4d& v
 
         // Проверяем видимость треугольника
         //if (isTriangleVisible(trian, c)) {
-            drawTriangle(trian, projMatrix, viewMatrix, scaleMatrix, rotMatrix, transMatrix); // Отрисовка видимого треугольника
+            drawTriangle(trian, projMatrix, viewMatrix, scaleMatrix, rotMatrix, transMatrix, win); // Отрисовка видимого треугольника
         //}
     }
 }
@@ -601,6 +640,7 @@ vec3d calculateAABBNormal(const collider& a, const collider& b) {
 // Обновление матрицы трансляции в обьекте
 void updateObjectTransform(object& obj) {
     obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
+    // obj.transform = matMult(obj.transform, createRotationMatrix(obj.rot.x, obj.rot.y, obj.rot.z));
 }
 
 
@@ -780,7 +820,7 @@ void updatePhysics(world& w, ofstream& coords) {
 void drawTrajectory(object& obj,
                    const matrx4d& projMatrix,
                    const matrx4d& viewMatrix,
-                   float globalScale) { //const int& frames
+                   float globalScale, WINDOW* win) { //const int& frames
     if(obj.trajectory.size() < 2) return;
 
     matrx4d scaleMatrix = createScaleMatrix(globalScale, globalScale, globalScale);
@@ -798,22 +838,23 @@ void drawTrajectory(object& obj,
     for(size_t i = 1; i < screenPoints.size(); i++) {
         vec3d prev = screenPoints[i-1];
         vec3d curr = screenPoints[i];
-        drawLine(prev.x, prev.y, curr.x, curr.y);
+        drawLine(prev.x, prev.y, curr.x, curr.y, win);
     }
 }
 
 // Рисование всех обьектов и их траектории в мире
-void drawWorld(world &w, matrx4d &rotMatrix, const camera& cam)
+void drawWorld(world &w, matrx4d &rotMatrix, const camera& cam, WINDOW* win)
 {
+    matrx4d viewMatrix = createViewMatrix(cam);
     for (auto &b : w.objects) { // Для каждого тела в массиве "theWorld.objects"
         // Рисование обьекта
         // matrx4d tfMatrix = matMult(scaleMatrix, (matMult(rotMatrix, (matMult(obj.transform, (matMult(w.projMatrix, w.viewMatrix))))))
-        drawMesh(b.model, w.projMatrix, w.viewMatrix,
-                 w.globalScale, rotMatrix, b.transform, cam);
+        drawMesh(b.model, w.projMatrix, viewMatrix,
+                 w.globalScale, rotMatrix, b.transform, cam, win);
 
         // Отрисовка траектории
         drawTrajectory(b, w.projMatrix,
-                       w.viewMatrix, w.globalScale);
+                       viewMatrix, w.globalScale, win);
     }
 }
 
@@ -942,11 +983,11 @@ bool &showMenu, WINDOW* &win, int &currBtn)
         else if (ch == 'm') // Главное меню
         {
             showMenu = true;
-            while(showMenu) {
-                clear();
-                refresh();
+            enablePhysics = false;
+            while(showMenu && isRunning) {
+                wclear(win);
+                wrefresh(win);
                 getmaxyx(stdscr, height, width);
-                // if(!isRunning) showMenu = false; // Когда перенесу переменные в хедер
                 win = createWindow(buttons, 25, 50, -1, -1,
                                   COLOR_BLUE, COLOR_BLACK,
                                   "Main Menu", true);
@@ -990,10 +1031,11 @@ bool &showMenu, WINDOW* &win, int &currBtn)
                             break;
                         case 'q':
                             showMenu = false;
+                            enablePhysics = true;
                             delwin(win);
                             win = nullptr;
-                            clear();
-                            refresh();
+                            wclear(win);
+                            wrefresh(win);
                             break;
                 }
 
@@ -1046,18 +1088,221 @@ vec3d toSpherical(const float& elev, const float& azim, const float& magn) {
     };
 }
 
-// Красивый вывод выбора поворота
-void arrow(const mesh& model, const float& elev, const float& azim, const float& posX, const float& posY, const float& posZ, const matrx4d &projMatrix)
-{
-    matrx4d rotMatrix = matMult(createRotationX(azim), createRotationY(elev));
-    matrx4d viewMatrix = createViewMatrix(cam);
-    matrx4d transMatrix = createTranslationMatrix(posX, posY, posZ);
-    drawMesh(model, projMatrix, viewMatrix, 1.0f, rotMatrix, transMatrix, cam);
-}
+void arrow(const mesh& model, const float& elev, const float& azim, const float& x, const float& y, const float& z) {
+    // Размер терминала
+    int termWidth, termHeight;
+    getmaxyx(stdscr, termHeight, termWidth);
 
+    // Окно, треть терминала
+    int winWidth = termWidth / 2;
+    int winHeight = termHeight / 1.5;
+
+    // Позиция для правого выравнивания
+    int startX = termWidth - winWidth; // Правый край
+    int startY = (termHeight - winHeight) / 2; // Центр по вертикали
+
+    // Положительные
+    startX = max(startX, 0);
+    startY = max(startY, 0);
+
+    WINDOW* win = newwin(winHeight, winWidth, startY, startX);
+    box(win, ACS_VLINE, ACS_HLINE);
+
+    matrx4d projMatrix = createProjMatrix(static_cast<float>(winHeight)/winWidth, 90.0f);
+    matrx4d rotX = createRotationX(-elev * M_PI / 180.0f);
+    matrx4d rotY = createRotationY(-azim * M_PI / 180.0f);
+    matrx4d rotMatrix = matMult(rotY, rotX);
+
+    camera previewCam = {
+        {},
+        {1.5f, 0.0f, -12.0f},
+        {0.0f, 0.0f, 1.0f},
+        {0.0f, -1.0f, 0.0f}
+    };
+
+    matrx4d viewMatrix = createViewMatrix(previewCam);
+    matrx4d transMatrix = createTranslationMatrix(x, y, z - 2);
+
+    drawMesh(model, projMatrix, viewMatrix, 1.0f, rotMatrix, transMatrix, previewCam, win);
+
+    wrefresh(win);
+    delwin(win);
+}
 void updateCam(camera& cam)
 {
     cam.position = cam.physics.pos;
+}
+
+void createWorldUI(world& w) {
+    int ch;
+    int currBtn = 0;
+    bool exit = false;
+
+    vector<button> buttons = {
+        {BUTTON, 10, 5, .targetVar = &w.globalScale, "World Scale", 1, 100, 1},
+        {BUTTON, 10, 7, .targetVar = &w.g, "Gravity", 1, 20, 1},
+        {CHECKBOX, 10, 9, .targetBool = &enablePhysics, "Enable Physics"},
+        {BUTTON, 10, 11, .targetVar = &w.atmDensity, "Atm. Density", 0, 2, 0.1},
+        {CHECKBOX, 10, 13, .targetBool = &exit, "Done"},
+    };
+
+    WINDOW* win = createWindow(buttons, 25, 50, -1, -1, COLOR_CYAN, COLOR_BLACK, "World Settings", true);
+
+    while (!exit) {
+        // Обновление кнопок
+        for (size_t i = 0; i < buttons.size(); ++i) {
+            updateButton(win, buttons[i], i == currBtn);
+        }
+
+        // Обработка ввода
+        ch = wgetch(win);
+        switch (ch) {
+            case KEY_UP:
+                currBtn = (currBtn > 0) ? currBtn - 1 : buttons.size() - 1;
+                break;
+            case KEY_DOWN:
+                currBtn = (currBtn < buttons.size() - 1) ? currBtn + 1 : 0;
+                break;
+            case KEY_LEFT:
+                if (buttons[currBtn].type == BUTTON) {
+                    *buttons[currBtn].targetVar -= buttons[currBtn].step;
+                }
+                break;
+            case KEY_RIGHT:
+                if (buttons[currBtn].type == BUTTON) {
+                    *buttons[currBtn].targetVar += buttons[currBtn].step;
+                }
+                break;
+            case '\n':
+            case KEY_ENTER:
+                if (buttons[currBtn].type == CHECKBOX) {
+                    *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
+                }
+                // Выход по кнопке "Back"
+                if (currBtn == buttons.size() - 1) {
+                    exit = true;
+                }
+                break;
+        }
+
+        // Проверка границ значений
+        if(buttons[currBtn].type == BUTTON) {
+            button& btn = buttons[currBtn];
+            if (*btn.targetVar < btn.minVal) *btn.targetVar = btn.minVal;
+            if (*btn.targetVar > btn.maxVal) *btn.targetVar = btn.maxVal;
+        }
+
+        wrefresh(win);
+    }
+
+    delwin(win); // Уничтожаем окно после цикла
+}
+
+void createObjectUI(world &w) {
+    object newObj;
+    newObj.mass = 0.0f;
+    newObj.Cd = 0.42f;
+    newObj.pos = {0, 0, 0};
+    newObj.force = {0, 0, 0};
+    bool exit = false;
+    bool confirmed = false;
+    float size = 1, elev = 0, azim = 0, mgntd = 0;
+    vector<button> buttons = {
+        {BUTTON, 10, 5, .targetVar = &newObj.mass, "Mass", 1, 1000, 1},
+        {BUTTON, 10, 7, .targetVar = &newObj.Cd, "Drag", 0, 2, 0.1},
+        {BUTTON, 10, 9, .targetVar = &elev, "Elevation (0 - 90)", 0, 90, 1},
+        {BUTTON, 10, 11, .targetVar = &azim, "Azimuth (0 - 360)", 0, 360, 1},
+        {BUTTON, 10, 13, .targetVar = &mgntd, "Magnitude", 0, 1000, 1.5},
+        {BUTTON, 10, 15, .targetVar = &size, "Size", 1, 10, 0.5},
+        {BUTTON, 10, 17, .targetVar = &newObj.pos.x, "Position (X)", -1000, 1000, 1},
+        {BUTTON, 10, 19, .targetVar = &newObj.pos.y, "Position (Y)", -1000, 1000, 1},
+        {BUTTON, 10, 21, .targetVar = &newObj.pos.z, "Position (Z)", -1000, 1000, 1},
+        {CHECKBOX, 2, 24, .targetBool = &confirmed, "Confirm"}
+    };
+
+    getmaxyx(stdscr, height, width);
+    WINDOW* win = createWindow(buttons, 25, 50, height - 25 / 2, -1, COLOR_GREEN, COLOR_BLACK, "Object Creation", true);
+
+    int ch;
+    int currBtn = 0;
+
+    while(!exit) {
+        getmaxyx(stdscr, height, width);
+        delwin(win);
+        clear();
+        refresh();
+        arrow(loadFromObjectFile("arrow.obj"), elev, azim, newObj.pos.x, newObj.pos.y, newObj.pos.z);
+        if(confirmed)
+        {
+            w.objects.push_back(newObj);
+            exit = true;
+            return;
+        }
+        win = createWindow(buttons, 25, 50, height / 2 - 25, width / 2 - 50, COLOR_GREEN, COLOR_BLACK, "Object Creation", true);
+        wrefresh(win);
+        for(size_t i = 0; i < buttons.size(); ++i) {
+            updateButton(win, buttons[i], i == currBtn);
+        }
+
+        if (win) {
+            ch = wgetch(win);
+
+            switch (ch) {
+                case KEY_UP:
+                    if (currBtn > 0) {
+                        currBtn--;
+                    } else currBtn = buttons.size() - 1;
+                    break;
+                case KEY_DOWN:
+                    if (currBtn < buttons.size() - 1) {
+                        currBtn++;
+                    } else currBtn = 0;
+                    break;
+                case KEY_LEFT:
+                    if(buttons[currBtn].type == BUTTON) {
+                        *buttons[currBtn].targetVar -= buttons[currBtn].step;
+                    }
+                    break;
+                case KEY_RIGHT:
+                    if(buttons[currBtn].type == BUTTON) {
+                        *buttons[currBtn].targetVar += buttons[currBtn].step;
+                    }
+                    break;
+                case KEY_ENTER: // Ввод для переключения чекбокса
+                    if(buttons[currBtn].type == CHECKBOX) {
+                        *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
+                    }
+                    break;
+                case '\n': // Ввод для переключения чекбокса
+                    if(buttons[currBtn].type == CHECKBOX) {
+                        *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
+                    }
+                    break;
+            }
+        // Проверка границ значений (только для BUTTON)
+        if(buttons[currBtn].type == BUTTON) {
+            button& btn = buttons[currBtn];
+            if (*btn.targetVar < btn.minVal) *btn.targetVar = btn.minVal;
+            if (*btn.targetVar > btn.maxVal) *btn.targetVar = btn.maxVal;
+        }
+        newObj.vel = toSpherical(elev, azim, mgntd);
+        newObj.transform = createTranslationMatrix(newObj.pos.x, newObj.pos.y, newObj.pos.z);
+ 	    newObj.area = M_PI * size * size;
+ 	    newObj.model = loadFromObjectFile("arrow.obj");
+	    for(auto tri : newObj.model.triangles)
+        {
+            tri = scaleTri(tri, size);
+        }
+	    // Инициализация коллайдера
+        newObj.col.center = newObj.pos;
+        newObj.col.size = {size, size, size};
+        newObj.col.isSphere = false;
+        newObj.col.isStatic = false;
+        newObj.col.rest = 0.5;
+        newObj.stationary = false;
+        }
+    }
+    delwin(win);
 }
 
 // Начальный экран
@@ -1065,7 +1310,6 @@ void startScrn(world* w)
 {
 object obj;
 bool start = false;
-bool nObj = false;
 bool put = false;
 int currBtn = 0;
 int ch;
@@ -1073,11 +1317,23 @@ float magn;
 float elev;
 float azim;
 vector<button> buttons  = {
-{CHECKBOX, 4, 10, .targetBool = &nObj, "Create New Object"}};
+{CHECKBOX, 4, 10, .targetBool = &creatdObj, "Create New Object"}};
 button cw = {CHECKBOX, 4, 12, .targetBool = &start, "Create New World"};
 
 while(!start) {
       getmaxyx(stdscr, height, width);
+      // Проверочка
+      while (height < 25 || width < 83) {
+            // Смотрим, не изменилось ли
+            getmaxyx(stdscr, height, width);
+            clear(); // Отчищаем
+            // Центрируем сообщение
+            int y = height / 2;
+            int x = (width / 2) - 20; // Смещение для текста
+            if (x < 0) x = 0; // Если терминал слишком узкий, выравниваем по левому краю
+            mvprintw(y, x, "Your terminal should be bigger than 82 x 24!");
+            refresh(); // Обновляем экран
+      }
       clear();
       refresh();
 	  if(w->objects.size() > 1  && !put)
@@ -1087,15 +1343,15 @@ while(!start) {
 	  }
 	  WINDOW* win = createWindow(buttons, height, width / 2, -1, 0,
                                   COLOR_WHITE, COLOR_BLACK,
-                                  R"(
+                                  "Welcome to", true);
+      mvwprintw(win, 1, 7, R"(
   _______                 _____ _
  |__   __|               |_   _| |
     | |_ __ __ _  ___ ___  | | | |_
     | | '__/ _` |/ __/ _ \ | | | __|
     | | | | (_| | (_|  __/_| |_| |_
     |_|_|  \__,_|\___\___|_____|\__|
-)"
-                                  , true);
+)");
                 // Первоначальная отрисовка
                 for (size_t i = 0; i < buttons.size(); ++i) {
                     updateButton(win, buttons[i], i == currBtn);
@@ -1137,90 +1393,11 @@ while(!start) {
                     }
                     break;
             }
-	if(nObj)  {
+	if(creatdObj)  {
 	clear();
 	refresh();
-	printw("\nEnter Mass (kg): \n");
-	try {
-       		obj.mass = stof(consoleIn());
-   		} catch (const std::invalid_argument& e) {
-       		// Обработка ошибки
-       		obj.mass = 1.0f;
-     		printw("Not a number, defaulting to: %.2f", obj.mass);
-  	    }
-	printw("\nEnter Cd: \n");
-	try {
-                obj.Cd = stof(consoleIn());
-        } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                obj.Cd = 0.47f;
-                printw("Not a number, defaulting to: %.2f", obj.Cd);
-         }
-	printw("\nVelocity in spherical, elevation (0 - 90): \n");
-	try {
-                elev = stof(consoleIn());
-        } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                elev = 0.0f;
-                printw("Not a number, defaulting to: %.2f", elev);
-         }
-	printw("\nVelocity in spherical, azimuth (0 - 360): \n");
-	try {
-                azim = stof(consoleIn());
-        } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                azim = 0.0f;
-                printw("Not a number, defaulting to: %.2f", azim);
-           }
-    printw("\nEnter velocity magnitude (m/s): \n");
-	try {
-                magn = stof(consoleIn());
-        } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                magn = 0.0f;
-                printw("Not a number, defaulting to: %.2f", magn);
-           }
-    arrow(loadFromObjectFile("arrow.obj"), elev, azim, width - width / 4, height / 2, 0.0f, createProjMatrix(width / height, 90.0f));
-    obj.vel = toSpherical(elev, azim, magn);
-    printw("\nEnter Position (X): \n");
-        try {
-                obj.pos.x = stof(consoleIn());
-            } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                obj.pos.x = 0.0f;
-                printw("Not a number, defaulting to: %.2f", obj.pos.x);
-           }
-    printw("\nEnter Position (Y): \n");
-        try {
-                obj.pos.y = stof(consoleIn());
-            } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                obj.pos.y = 0.0f;
-                printw("Not a number, defaulting to: %.2f", obj.pos.y);
-           }
-    printw("\nEnter Position (Z): \n");
-        try {
-                obj.pos.z = stof(consoleIn());
-                } catch (const std::invalid_argument& e) {
-                // Обработка ошибки
-                obj.pos.z = 0.0f;
-                printw("Not a number, defaulting to: %.2f", obj.pos.z);
-           }
-    obj.transform = createTranslationMatrix(obj.pos.x, obj.pos.y, obj.pos.z);
- 	obj.force = {0, 0, 0};
- 	obj.area = 3.14;
-	obj.model = loadFromObjectFile("sphere.obj");
-	// Инициализация коллайдера
-    obj.col.center = obj.pos;
-    obj.col.size = {1, 1, 1};
-    obj.col.isSphere = false;
-    obj.col.isStatic = false;
-    obj.col.rest = 0.5;
-    obj.stationary = false;
-    w->objects.push_back(obj);
-    nObj = false;
-	clear();
-	refresh();
+	createObjectUI(*w);
+	creatdObj = false;
 	}
 }
 
@@ -1240,7 +1417,7 @@ while(!start) {
 	float g;
 	clear();
 	refresh();
-	printw("\nEnter atmosphere density: \n");
+	/*printw("\nEnter atmosphere density: \n");
 	try {
 		if((ad = stof(consoleIn())) <  0.0f) {
         	w->atmDensity = 1.125f;
@@ -1263,8 +1440,9 @@ while(!start) {
                 } catch (const std::invalid_argument& e) {
                 printw("Not a number, defaulting to: %.2f", w->g);
                 clear();
-	            refresh();
-	}
+	            refresh();*/
+	            createWorldUI(*w);
+	//}
 }
 
 // Главная функция
@@ -1282,49 +1460,46 @@ int main()
     mousemask(ALL_MOUSE_EVENTS | REPORT_MOUSE_POSITION, NULL);
     mouseinterval(0);  // Отключаем задержку для мыши
     scrollok(stdscr, TRUE);  // Включаем скроллинг
-    printf("\033[?1003h\n"); // Для iterm?
+    printf("\033[?1003h\n"); // Для iTerm?
 
-    // Важные переменные
-    int frames = 0;
-    int currBtn = 0;
-    float rotAngle = 0.0f;
-    float magn = 1.0f;
-    float fov = 90.0;
-    float objIndex = 0;
-    bool isRunning = true;
-    bool debug = true;
-    bool enablePhysics = false;
-    bool enableTriCnt = false;
-    bool showMenu = false;
-    bool disableFilling = true;
-    bool objView = false;
-    bool countTillFallen = false; // Доделать
+    // Важное
     cam.physics = {{0.0f, 0.0f, -20.0f},
-    {0.0f, 0.0f, 20.0f},
+    {0.0f, 0.0f, 0.0f},
     {0.0f, 0.0f, 0.0f},
     75.0f, createRectMesh(0.4f, 1.75f, 0.25), createTranslationMatrix(0, 0, -20),
     0.7f, 0.1f, false};
-    //cam.physics.trajWritten = true;
+    cam.physics.trajWritten = true;
     cam.physics.col = {cam.position, {0.4f, 1.75f, 0.25}, 0.0f, false, false, 0.1};
 
     matrx4d floPos = createTranslationMatrix(0, -20, 0);
 
     // Создание мира
     mesh e = createRectMesh(10000, 5, 10000); //loadFromObjectFile("sphere.obj");
-    //for(auto tri : e.triangles)
-    //{
-       // tri = scaleTri(tri, 5);
-    //}
     world w;
     w.globalScale = 1.0f;
     object earth = {{0, -20, 0}, {0, 0, 0}, {0, 0, 0}, 1000, e, floPos, 1000.0f, 1000.0f, true}; /*5.9742e+24f*/
     earth.col.center = earth.pos;
     earth.col.size = {10000, 5, 10000};
     earth.col.isSphere = false;
-    earth.col.isStatic = true;
+    earth.col.isStatic = false;
     earth.col.rest = 1.0f;
     w.objects.push_back(earth);
-    //w.objects.push_back(cam.physics);
+    w.objects.push_back(cam.physics);
+
+    getmaxyx(stdscr, height, width);
+    // Проверочка
+    while (height < 25 || width < 83) {
+        // Смотрим, не изменилось ли
+        getmaxyx(stdscr, height, width);
+        clear(); // Отчищаем
+        // Центрируем сообщение
+        int y = height / 2;
+        int x = (width / 2) - 20; // Смещение для текста
+        if (x < 0) x = 0; // Если терминал слишком узкий, выравниваем по левому краю
+        mvprintw(y, x, "Your terminal should be bigger than 82 x 24!");
+        refresh(); // Обновляем экран
+    }
+
     startScrn(&w);
 
     // Создаем таблицу координат
@@ -1336,6 +1511,8 @@ int main()
     matrx4d rotX;
     matrx4d rotY;
     matrx4d rotZ;
+
+    float* pVX = &w.objects[objIndex].vel.x;
 
     // Кнопки главного меню
     vector<button> mainM = {
@@ -1350,21 +1527,46 @@ int main()
         {CHECKBOX, 10, 13, .targetBool = &enablePhysics, "Enable Physics"},
         {CHECKBOX, 10, 15, .targetBool = &enableTriCnt, "Count All Triangles"},
         {CHECKBOX, 10, 17, .targetBool = &debug, "Debug Mode"},
-        {BUTTON, 10, 19, .targetVar = &w.objects[objIndex].vel.x, "Vel X", 0, 50, 1},
+        {BUTTON, 10, 19, .targetVar = pVX, "Vel X", 0, 50, 1},
         {CHECKBOX, 10, 21, .targetBool = &objView, "Object PoW"},
         {CHECKBOX, 10, 24, .targetBool = &isRunning, "[QUIT]"}
         };
 
     WINDOW* win = nullptr;
+    WINDOW* miniMap = newwin(10, 10, 0, 0); //newwin(height / 3, width / 3, 0, width * 2 / 3);
+    box(miniMap, ACS_VLINE, ACS_HLINE);
+    WINDOW* mainWin = nullptr;
 
     // Главный цикл
     while (isRunning)
     {
+        //pVX = &w.objects[objIndex].vel.x;
         // Получение и вывод размера консоли
         getmaxyx(stdscr, height, width);
+        // Проверочка
+        while (height < 25 || width < 83) {
+            // Смотрим, не изменилось ли
+            getmaxyx(stdscr, height, width);
+            clear(); // Отчищаем
+            // Центрируем сообщение
+            int y = height / 2;
+            int x = (width / 2) - 20; // Смещение для текста
+            if (x < 0) x = 0; // Если терминал слишком узкий, выравниваем по левому краю
+            mvprintw(y, x, "Your terminal should be bigger than 82 x 24!");
+            refresh(); // Обновляем экран
+        }
+
+        // Удаляем старое окно
+        delwin(miniMap);
+        // Создаем новое окно в правом верхнем углу
+        miniMap = newwin(height / 4, width / 4, 0, width / 4 * 3);
+        box(miniMap, ACS_VLINE + 1, ACS_HLINE + 1);
+
+        delwin(mainWin);
+        mainWin = newwin(0, 0, 0, 0);
+
         float aspect = static_cast<float>(height) / static_cast<float>(width);
-        if(!showMenu) {
-            clear(); // Очистка экрана
+        //if(!showMenu) {
             rotAngle += 0.00f;
             rotX = createRotationX(rotAngle);
             rotY = createRotationY(rotAngle);
@@ -1380,7 +1582,10 @@ int main()
 	        scaleMatrix = createScaleMatrix(w.globalScale, w.globalScale, w.globalScale);
 
 	        if(enablePhysics) updatePhysics(w, coords);
-	        drawWorld(w, rotMatrix, cam);
+
+	        wclear(mainWin); // Очистка экрана
+	        drawWorld(w, rotMatrix, cam, mainWin);
+
 	        //updateCam(cam);
 	        if(enableTriCnt) mvprintw(height - 3, 0, "All Triangles: %.i", cntTris(w));
 
@@ -1390,35 +1595,35 @@ int main()
             }
 
             if(debug){
-                move(4, 0);
-                printw("Scale: %f\n", w.globalScale);
-                move(5, 0);
-                printw("Camera position: (x%.2f, y%.2f, z%.2f tiltY %.2f, tiltX %.2f) \n", cam.position.x, cam.position.y, cam.position.z, cam.direction.y, cam.direction.x);
-	            move(6, 0);
-	            printw("Frame #%i, Time: %.2f", frames, (frames * 0.0166));
-	            move(7, 0);
-	            printw("Obj. Pos. x %.2f, y %.2f, z %.2f", w.objects[objIndex].pos.x, w.objects[objIndex].pos.y, w.objects[objIndex].pos.z);
-	            move(8, 0);
-	            printw("Obj. Vel. x %.2f, y %.2f, z %.2f", w.objects[objIndex].vel.x, w.objects[objIndex].vel.y, w.objects[objIndex].vel.z);
-	            move(9, 0);
-	            printw("Object Mass: %.2f", w.objects[objIndex].mass);
-	            move(10, 0);
-	            printw("Terminal Dimensions: Columns %i, Rows %i,", width, height);
+                mvwprintw(mainWin, 4, 0, "Scale: %f\n", w.globalScale);
+                mvwprintw(mainWin, 5, 0, "Camera position: (x%.2f, y%.2f, z%.2f tiltY %.2f, tiltX %.2f) \n", cam.position.x, cam.position.y, cam.position.z, cam.direction.y, cam.direction.x);
+	            mvwprintw(mainWin, 6, 0, "Frame #%i, Time: %.2f", frames, (frames * 0.0166));
+	            mvwprintw(mainWin, 7, 0, "Obj. Pos. x %.2f, y %.2f, z %.2f", w.objects[objIndex].pos.x, w.objects[objIndex].pos.y, w.objects[objIndex].pos.z);
+	            mvwprintw(mainWin, 8, 0, "Obj. Vel. x %.2f, y %.2f, z %.2f", w.objects[objIndex].vel.x, w.objects[objIndex].vel.y, w.objects[objIndex].vel.z);
+	            mvwprintw(mainWin, 9, 0, "Object Mass: %.2f", w.objects[objIndex].mass);
+	            mvwprintw(mainWin, 10, 0, "Terminal Dimensions: Columns %i, Rows %i,", width, height);
         }
-    }
+    //}
         // Обработка ввода
         int ch;
         handleInput(ch, cam, w, fov, magn, mainM, showMenu, win, currBtn);
 
-        refresh(); // Обновление экрана
+        wrefresh(mainWin); // Обновление экрана
 
-        // Примерно 60 к/c (без лага)
-        frames++;
+        if (frames % 5 == 0) {
+	    //    wclear(miniMap); // Очистка экрана
+	        drawWorld(w, rotMatrix, mCam, miniMap);
+	        wrefresh(miniMap); // Обновление экрана
+	    }
+
+        // Примерно 60 к/c (без вычислений)
+        if(enablePhysics) frames++;
         usleep(16600);
     }
 
     // Завершение работы ncurses
     endwin();
+    cout << "See ya!" << endl;
     return 0;
 }
 
