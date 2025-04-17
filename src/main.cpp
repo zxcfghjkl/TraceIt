@@ -1137,6 +1137,8 @@ void createWorldUI(world& w) {
     int ch;
     int currBtn = 0;
     bool exit = false;
+    w.g = 9.8;
+    w.atmDensity = 1.2;
 
     vector<button> buttons = {
         {BUTTON, 10, 5, .targetVar = &w.globalScale, "World Scale", 1, 100, 1},
@@ -1149,11 +1151,16 @@ void createWorldUI(world& w) {
     WINDOW* win = createWindow(buttons, 25, 50, -1, -1, COLOR_CYAN, COLOR_BLACK, "World Settings", true);
 
     while (!exit) {
+        delwin(win);
+        clear();
+        refresh();
+        win = createWindow(buttons, 25, 50, -1, -1, COLOR_CYAN, COLOR_BLACK, "World Settings", true);
+        wrefresh(win);
+
         // Обновление кнопок
         for (size_t i = 0; i < buttons.size(); ++i) {
             updateButton(win, buttons[i], i == currBtn);
         }
-
         // Обработка ввода
         ch = wgetch(win);
         switch (ch) {
@@ -1178,7 +1185,7 @@ void createWorldUI(world& w) {
                 if (buttons[currBtn].type == CHECKBOX) {
                     *buttons[currBtn].targetBool = !*buttons[currBtn].targetBool;
                 }
-                // Выход по кнопке "Back"
+                // Выход по кнопке "Done"
                 if (currBtn == buttons.size() - 1) {
                     exit = true;
                 }
@@ -1191,8 +1198,6 @@ void createWorldUI(world& w) {
             if (*btn.targetVar < btn.minVal) *btn.targetVar = btn.minVal;
             if (*btn.targetVar > btn.maxVal) *btn.targetVar = btn.maxVal;
         }
-
-        wrefresh(win);
     }
 
     delwin(win); // Уничтожаем окно после цикла
@@ -1484,7 +1489,7 @@ int main()
     earth.col.isStatic = false;
     earth.col.rest = 1.0f;
     w.objects.push_back(earth);
-    w.objects.push_back(cam.physics);
+    //w.objects.push_back(cam.physics);
 
     getmaxyx(stdscr, height, width);
     // Проверочка
